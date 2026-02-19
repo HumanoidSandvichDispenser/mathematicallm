@@ -1,0 +1,17 @@
+[project]
+name = "zermelo"
+version = "0.1.0"
+dependencies = [
+    "treelib",
+    "sympy",
+]
+
+[tool.uv.sources]
+mathematicallm-graph = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/zermelo"]
