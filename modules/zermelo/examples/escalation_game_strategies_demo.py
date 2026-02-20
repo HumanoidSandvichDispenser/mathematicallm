@@ -24,7 +24,7 @@ from zermelo.services.strategy import (
     find_reduced_pure_strategies,
 )
 from zermelo.services.strategic_form import extensive_to_strategic
-from zermelo.services.nash import find_pure_nash_equilibria
+from zermelo.services.equilibria import find_pure_nash_equilibria
 
 
 def build_escalation_game() -> GameTree:
