@@ -10,9 +10,11 @@ from sympy import MutableDenseNDimArray, Expr, simplify
 from zermelo.extensive.strategy import Strategy
 
 
+PayoffVector = tuple[Expr, ...]
+
 def find_pure_nash_equilibria(
     strategies: list[list[Strategy]], payoffs: MutableDenseNDimArray
-) -> list[tuple[tuple[int, ...], tuple[Expr, ...]]]:
+) -> list[tuple[tuple[int, ...], PayoffVector]]:
     """
     Find all pure strategy Nash equilibria in a strategic-form game.
 

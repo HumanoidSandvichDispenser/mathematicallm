@@ -95,11 +95,29 @@ class TerminalNodeData(NodeData):
         probability: Edge probability (inherited from NodeData)
     """
 
-    payoffs: tuple[Expr, ...] = ()
+    __payoffs: tuple[Expr, ...] = field(default_factory=tuple, init=False, repr=False)
+
+    def __init__(
+        self,
+        payoffs: tuple[Expr | int, ...],
+        probability: Optional[Expr | int] = None,
+        **kwargs
+    ):
+        super().__init__(**kwargs)
+        self.payoffs = self.__sympify_tuple(payoffs)
+
+        if probability is not None:
+            self.probability = self.__coalesce_sympy(probability)
+
+    def __coalesce_sympy(self, value: Expr | int) -> Expr:
+        return value if isinstance(value, Expr) else sympify(value)
+
+    def __sympify_tuple(self, values: tuple[Expr | int, ...]) -> tuple[Expr, ...]:
+        return tuple(self.__coalesce_sympy(v) for v in values)
 
     def __post_init__(self):
         super().__post_init__()
-        self.payoffs = tuple(sympify(p) for p in self.payoffs)
+        #self.payoffs = tuple(sympify(p) for p in self.payoffs)
 
     @property
     def bi_value(self) -> tuple[Expr, ...]:

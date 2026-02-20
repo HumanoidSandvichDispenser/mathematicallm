@@ -3,12 +3,139 @@ Tests for multiple equilibria support in backward induction.
 """
 
 import pytest
+import sympy as sp
 from zermelo.extensive import (
     GameTree,
     DecisionNodeData,
     TerminalNodeData,
     EquilibriumPath,
+    ChanceNodeData,
 )
+import zermelo.services.subgame_perfect_equilibria as sge
+
+
+def test_simple_two_player_game():
+    """Test backward induction on a simple 2-player sequential game."""
+    tree = GameTree(num_players=2)
+
+    # Root: Player 0 decides
+    tree.create_node(
+        tag="P0 decision", identifier="root", data=DecisionNodeData(player=0)
+    )
+
+    # Player 0 chooses Left -> terminal with payoff (1, 0)
+    tree.create_node(
+        tag="Left outcome",
+        identifier="left",
+        parent="root",
+        data=TerminalNodeData(payoffs=(1, 0)),
+    )
+
+    # Player 0 chooses Right -> Player 1 decides
+    tree.create_node(
+        tag="P1 decision",
+        identifier="p1_node",
+        parent="root",
+        data=DecisionNodeData(player=1),
+    )
+
+    # Player 1 chooses Up -> (2, 2)
+    tree.create_node(
+        tag="Up outcome",
+        identifier="up",
+        parent="p1_node",
+        data=TerminalNodeData(payoffs=(2, 2)),
+    )
+
+    # Player 1 chooses Down -> (0, 3)
+    tree.create_node(
+        tag="Down outcome",
+        identifier="down",
+        parent="p1_node",
+        data=TerminalNodeData(payoffs=(0, 3)),
+    )
+
+    # Solve with backward induction
+    result = sge.backward_induction(tree, mutate=True)
+
+    # P1 will choose Down (payoff 3 > 2), so P0 gets 0
+    # P0 compares Left (payoff 1) vs Right->Down (payoff 0)
+    # P0 should choose Left, final payoff is (1, 0)
+    assert result == (sp.Integer(1), sp.Integer(0))
+    assert tree.get_node("root").data.bi_value == (sp.Integer(1), sp.Integer(0))
+
+
+def test_chance_node():
+    """Test backward induction with chance nodes."""
+    tree = GameTree(num_players=2)
+
+    # Root: chance node
+    tree.create_node(tag="Nature", identifier="root", data=ChanceNodeData())
+
+    # 50% chance: payoff (10, 0)
+    tree.create_node(
+        tag="Terminal 1",
+        identifier="t1",
+        parent="root",
+        data=TerminalNodeData(payoffs=(10, 0), probability=sp.Rational(1, 2)),
+    )
+
+    # 50% chance: payoff (0, 10)
+    tree.create_node(
+        tag="Terminal 2",
+        identifier="t2",
+        parent="root",
+        data=TerminalNodeData(payoffs=(0, 10), probability=sp.Rational(1, 2)),
+    )
+
+    # Solve
+    result = sge.backward_induction(tree, mutate=True)
+
+    # Expected value: 0.5 * (10, 0) + 0.5 * (0, 10) = (5, 5)
+    assert result == (sp.Integer(5), sp.Integer(5))
+
+
+def test_backward_induction_imperfect_information():
+    """Test that backward induction raises NotImplementedError for imperfect information."""
+    tree = GameTree(num_players=2)
+    tree.create_node(
+        "P0 A", "n1", data=DecisionNodeData(player=0, information_set="I0")
+    )
+    tree.create_node(
+        "P0 B", "n2", parent="n1", data=DecisionNodeData(player=0, information_set="I0")
+    )
+    tree.create_node(
+        "P0 C", "n3", parent="n1", data=DecisionNodeData(player=0, information_set="I0")
+    )
+    tree.create_node(
+        "Terminal", "t1", parent="n2", data=TerminalNodeData(payoffs=(1, 0))
+    )
+
+    with pytest.raises(NotImplementedError) as exc_info:
+        sge.backward_induction(tree, mutate=True)
+    assert "imperfect information" in str(exc_info.value).lower()
+
+
+def test_symbolic_payoffs():
+    """Test backward induction with symbolic payoffs."""
+    x = sp.Symbol("x")
+
+    tree = GameTree(num_players=2)
+    tree.create_node("Root", "root", data=DecisionNodeData(player=0))
+
+    tree.create_node(
+        "Left", "left", parent="root", data=TerminalNodeData(payoffs=(x, 0))
+    )
+
+    tree.create_node(
+        "Right", "right", parent="root", data=TerminalNodeData(payoffs=(x + 1, 1))
+    )
+
+    result = sge.backward_induction(tree, mutate=True)
+
+    # P0 chooses max(x, x+1) which is x+1
+    assert result[0] == x + 1
+    assert result[1] == sp.Integer(1)
 
 
 def test_unique_equilibrium():
@@ -20,11 +147,11 @@ def test_unique_equilibrium():
     tree.create_node("right", "right", parent="root", data=TerminalNodeData(payoffs=(1, 2)))
     
     # Solve
-    result = tree.backward_induction(mutate=True)
+    result = sge.backward_induction(tree, mutate=True)
     assert result == (3, 1), "P0 should choose left"
     
     # Get equilibria
-    equilibria = tree.get_all_equilibria()
+    equilibria = sge.get_all_equilibria(tree)
     
     assert len(equilibria) == 1, "Should have exactly one equilibrium"
     eq = equilibria[0]
@@ -41,7 +168,7 @@ def test_two_equilibria_one_decision_node():
     tree.create_node("right", "right", parent="root", data=TerminalNodeData(payoffs=(2, 3)))
     
     # Solve
-    result = tree.backward_induction(mutate=True)
+    result = sge.backward_induction(tree, mutate=True)
     assert result == (2, 1) or result == (2, 3), "Both give P0 payoff of 2"
     
     # Check optimal children stored
@@ -49,7 +176,7 @@ def test_two_equilibria_one_decision_node():
     assert set(root.data.optimal_children) == {"left", "right"}, "Both children should be optimal"
     
     # Get equilibria
-    equilibria = tree.get_all_equilibria()
+    equilibria = sge.get_all_equilibria(tree)
     
     assert len(equilibria) == 2, "Should have exactly two equilibria"
     
@@ -86,11 +213,11 @@ def test_four_equilibria_two_decision_nodes():
     tree.create_node("B2", "B2", parent="B", data=TerminalNodeData(payoffs=(3, 2)))
     
     # Solve
-    result = tree.backward_induction(mutate=True)
+    result = sge.backward_induction(tree, mutate=True)
     assert result == (3, 2)
     
     # Get equilibria
-    equilibria = tree.get_all_equilibria()
+    equilibria = sge.get_all_equilibria(tree)
     
     assert len(equilibria) == 4, "Should have 2x2 = 4 equilibria"
     
@@ -125,11 +252,11 @@ def test_equilibria_with_sequential_tie():
     tree.create_node("L2", "L2", parent="left", data=TerminalNodeData(payoffs=(3, 2)))
     
     # Solve
-    result = tree.backward_induction(mutate=True)
+    result = sge.backward_induction(tree, mutate=True)
     assert result == (3, 2)
     
     # Get equilibria
-    equilibria = tree.get_all_equilibria()
+    equilibria = sge.get_all_equilibria(tree)
     
     assert len(equilibria) == 2, "Should have 2 equilibria (tie only under left)"
     
@@ -148,7 +275,7 @@ def test_no_equilibria_without_bi():
     tree.create_node("left", "left", parent="root", data=TerminalNodeData(payoffs=(1, 0)))
     
     with pytest.raises(ValueError, match="backward_induction has not been run"):
-        tree.get_all_equilibria()
+        sge.get_all_equilibria(tree)
 
 
 def test_symbolic_tie():
@@ -162,10 +289,10 @@ def test_symbolic_tie():
     tree.create_node("A", "A", parent="root", data=TerminalNodeData(payoffs=(x,)))
     tree.create_node("B", "B", parent="root", data=TerminalNodeData(payoffs=(x,)))  # Same value
     
-    result = tree.backward_induction(mutate=True)
+    result = sge.backward_induction(tree, mutate=True)
     assert result == (x,)
     
-    equilibria = tree.get_all_equilibria()
+    equilibria = sge.get_all_equilibria(tree)
     assert len(equilibria) == 2, "Symbolic tie should create 2 equilibria"
 
 

@@ -6,7 +6,7 @@ backward induction and subgame perfect Nash equilibria.
 """
 
 from __future__ import annotations
-from typing import Optional, Sequence, TYPE_CHECKING
+from typing import Optional, Sequence
 import sympy as sp
 from sympy import Expr, simplify
 from ..extensive.game_node import GameNode
@@ -21,7 +21,7 @@ from ..extensive.game_tree import GameTree
 
 
 def backward_induction(
-    tree: "GameTree",
+    tree: GameTree,
     node_id: Optional[str] = None,
     mutate: bool = False,
 ) -> tuple[Expr, ...]:
@@ -63,7 +63,6 @@ def backward_induction(
         subtree_copy = tree.subtree(node_id)
         if subtree_copy.root is None:
             raise ValueError(f"Node with id {node_id} not found in the tree.")
-        from ..extensive.game_tree import GameTree
 
         tree_copy = GameTree(num_players=tree.num_players, tree=subtree_copy, deep=True)
         if tree_copy.root is None:
@@ -107,7 +106,7 @@ def backward_induction(
 
 
 def get_all_equilibria(
-    tree: "GameTree",
+    tree: GameTree,
     node_id: Optional[str] = None,
 ) -> list[EquilibriumPath]:
     """
@@ -206,7 +205,7 @@ def get_all_equilibria(
 
 
 def get_all_spne(
-    tree: "GameTree",
+    tree: GameTree,
     node_id: Optional[str] = None,
 ) -> list[SubgamePerfectEquilibrium]:
     """
@@ -249,8 +248,7 @@ def get_all_spne(
 
 
 def _build_spne_strategies(
-    tree: "GameTree",
-    node_id: str,
+    tree: GameTree, node_id: str,
 ) -> list[Strategy]:
     """
     Build complete SPNE strategies for all players.

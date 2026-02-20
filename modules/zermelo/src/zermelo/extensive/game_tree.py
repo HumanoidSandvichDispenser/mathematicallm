@@ -19,11 +19,6 @@ from .node_data import (
 )
 from .game_node import GameNode
 from .equilibrium import EquilibriumPath, SubgamePerfectEquilibrium
-from ..services.subgame_perfect_equilibria import (
-    backward_induction,
-    get_all_equilibria,
-    get_all_spne,
-)
 
 
 class GameTree(treelib.tree.Tree):  # type: ignore
@@ -142,58 +137,6 @@ class GameTree(treelib.tree.Tree):  # type: ignore
         Get a list of all nodes in the tree, typed as GameNode.
         """
         return list(self._nodes.values())
-
-    def backward_induction(
-        self, node_id: Optional[str] = None, mutate: bool = False
-    ) -> tuple[Expr, ...]:
-        """
-        Compute backward induction solution from the given node.
-
-        Args:
-            node_id: Starting node (defaults to root)
-            mutate: If True, modifies tree in-place; if False, works on a copy
-
-        Returns:
-            Tuple of expressions representing each player's expected payoffs
-        """
-        return backward_induction(self, node_id=node_id, mutate=mutate)
-
-    def get_all_equilibria(
-        self, node_id: Optional[str] = None
-    ) -> list[EquilibriumPath]:
-        """
-        Enumerate all subgame perfect Nash equilibria.
-
-        This method must be called AFTER backward_induction() has been run with mutate=True.
-
-        Args:
-            node_id: Starting node (defaults to root)
-
-        Returns:
-            List of EquilibriumPath objects, one per equilibrium
-        """
-        return get_all_equilibria(self, node_id=node_id)
-
-    def get_all_spne(
-        self, node_id: Optional[str] = None
-    ) -> list[SubgamePerfectEquilibrium]:
-        """
-        Enumerate all subgame perfect Nash equilibria with complete strategies.
-
-        This method must be called AFTER backward_induction() has been run with mutate=True.
-        It returns not just the equilibrium path but also the complete strategy for each
-        player at ALL their information sets.
-
-        This is important because if a player deviates from the equilibrium path, the other
-        players' strategies still specify their optimal responses at every subgame.
-
-        Args:
-            node_id: Starting node (defaults to root)
-
-        Returns:
-            List of SubgamePerfectEquilibrium objects, one per equilibrium
-        """
-        return get_all_spne(self, node_id=node_id)
 
     def to_dict(self, include_bi_values: bool = True) -> dict:
         """
