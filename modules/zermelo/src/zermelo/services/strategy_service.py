@@ -1,8 +1,9 @@
+from itertools import product
 from zermelo.extensive.game_tree import GameTree
 from zermelo.extensive.strategy import Strategy
 
 
-def find_full_pure_strategies(game: GameTree, player):
+def find_full_pure_strategies(game: GameTree, player: int) -> set[Strategy]:
     """
     Find all full pure strategies for the given extensive-form game. A full
     pure strategy is a strategy that specifies an action for every information
@@ -17,9 +18,34 @@ def find_full_pure_strategies(game: GameTree, player):
         A set of Strategy objects, each representing a full pure strategy for the
         game.
     """
+    info_sets = game.get_information_sets(player)
 
-    # it is just a cartesian product of all possible actions at each
-    # information set
+    if not info_sets:
+        return {Strategy({})}
+
+    info_set_actions = []
+    for info_set_id in sorted(info_sets):
+        nodes = game.get_nodes_in_information_set(info_set_id)
+        if not nodes:
+            continue
+        node = nodes[0]
+        children = game.children(node.identifier)
+        action_ids = [child.identifier for child in children]
+        if action_ids:
+            info_set_actions.append(action_ids)
+
+    if not info_set_actions:
+        return {Strategy({})}
+
+    strategies: set[Strategy] = set()
+    for action_combo in product(*info_set_actions):
+        decisions = {}
+        for info_set_id, action_id in zip(sorted(info_sets), action_combo):
+            decisions[info_set_id] = action_id
+        strategies.add(Strategy(decisions))
+
+    return strategies
+
 
 def find_reduced_pure_strategies(game: GameTree, player):
     """
@@ -49,3 +75,6 @@ def find_reduced_pure_strategies(game: GameTree, player):
     # need to make sure that all actions that are in the same information set
     # are treated as indistinguishable, and we need to make sure that we only
     # include one action for each information set in the strategy.
+
+    strategies: set[Strategy] = set()
+    return strategies
