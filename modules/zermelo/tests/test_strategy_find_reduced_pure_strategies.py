@@ -165,6 +165,62 @@ def test_imperfect_info_p1_reduced_count(imperfect_info_same_actions_tree):
 
 
 # ---------------------------------------------------------------------------
+# Imperfect info with extra decision reachable only on some paths
+# ---------------------------------------------------------------------------
+
+
+def test_imperfect_info_with_extra_decision(imperfect_info_with_extra_decision_tree):
+    """
+    P1 has info set I1 (reached always), and info set I2 (reached only
+    if P1 chooses 'down' at I1 and then P0 continues to I2).
+
+    Reduced strategies should include I2 only when it's reachable.
+    """
+    strategies = find_reduced_pure_strategies(
+        imperfect_info_with_extra_decision_tree, player=1
+    )
+
+    # P1 has 2 info sets: I1 always reached, I2 only reached if they choose "down" at I1
+    # - I1="up" path: terminals directly, I2 never reached
+    # - I1="down" path: goes to P0 continuation, then I2 is reached
+    # So we expect: 1 strategy for I1="up" + 2 strategies for I1="down" (with I2=x or I2=y)
+    # = 3 reduced strategies
+    assert len(strategies) == 3
+    assert Strategy({"I1": "up"}) in strategies
+    assert Strategy({"I1": "down", "I2": "x"}) in strategies
+    assert Strategy({"I1": "down", "I2": "y"}) in strategies
+
+
+# ---------------------------------------------------------------------------
+# Prisoner's Dilemma
+# ---------------------------------------------------------------------------
+
+
+def test_prisoners_dilemma_p0_reduced(prisoners_dilemma_tree):
+    """P0 has 2 reduced strategies: cooperate or defect."""
+    strategies = find_reduced_pure_strategies(prisoners_dilemma_tree, player=0)
+
+    assert len(strategies) == 2
+    decision_sets = [s.decisions for s in strategies]
+    assert {"root": "cooperate"} in decision_sets
+    assert {"root": "defect"} in decision_sets
+
+
+def test_prisoners_dilemma_p1_reduced(prisoners_dilemma_tree):
+    """P1 has 2 reduced strategies: cooperate or defect.
+
+    P1's info set I1 is reached regardless of P0's choice, so both
+    actions are part of all reduced strategies.
+    """
+    strategies = find_reduced_pure_strategies(prisoners_dilemma_tree, player=1)
+
+    assert len(strategies) == 2
+    decision_sets = [s.decisions for s in strategies]
+    assert {"I1": "cooperate"} in decision_sets
+    assert {"I1": "defect"} in decision_sets
+
+
+# ---------------------------------------------------------------------------
 # Empty game
 # ---------------------------------------------------------------------------
 

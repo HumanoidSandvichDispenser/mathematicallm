@@ -463,7 +463,9 @@ def load_game(game_json: str, name: str | None = None) -> str:
     Optional fields:
     - `"probability"`: edge probability (e.g., `"1/2"`)
     - `"information_set"`: string id grouping nodes in the same info set
-    - `"actions"`: list of action labels (e.g., `["up", "down"]`) used as action names in strategies
+    - `"actions"`: list of action labels (e.g., `["up", "down"]`) used as
+      action names in strategies (this is very necessary for imperfect
+      information games, otherwise child node ids are used as action names)
 
     **Chance node** — nature moves with given probabilities on its children:
     ```json
