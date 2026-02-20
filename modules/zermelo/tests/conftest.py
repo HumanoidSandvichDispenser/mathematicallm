@@ -84,23 +84,23 @@ def escalation_game():
               - War     -> (-1, -1)
     """
     tree = GameTree(num_players=2)
-    tree.create_node("Player 1", "p1_root", data=DecisionNodeData(player=0))
+    tree.create_node("Player 1", "root", data=DecisionNodeData(player=0))
     tree.create_node(
-        "Accept", "accept", parent="p1_root", data=TerminalNodeData(payoffs=(0, 0))
+        "Accept", "accept", parent="root", data=TerminalNodeData(payoffs=(0, 0))
     )
     tree.create_node(
-        "Player 2", "p2_node", parent="p1_root", data=DecisionNodeData(player=1)
+        "Player 2", "threaten", parent="root", data=DecisionNodeData(player=1)
     )
     tree.create_node(
-        "Concede", "concede", parent="p2_node", data=TerminalNodeData(payoffs=(1, -2))
+        "Concede", "concede", parent="threaten", data=TerminalNodeData(payoffs=(1, -2))
     )
     tree.create_node(
-        "Player 1 again", "p1_again", parent="p2_node", data=DecisionNodeData(player=0)
+        "Player 1 again", "escalate", parent="threaten", data=DecisionNodeData(player=0)
     )
     tree.create_node(
-        "Give Up", "give_up", parent="p1_again", data=TerminalNodeData(payoffs=(-2, 1))
+        "Give Up", "give_up", parent="escalate", data=TerminalNodeData(payoffs=(-2, 1))
     )
     tree.create_node(
-        "War", "war", parent="p1_again", data=TerminalNodeData(payoffs=(-1, -1))
+        "War", "war", parent="escalate", data=TerminalNodeData(payoffs=(-1, -1))
     )
     return tree

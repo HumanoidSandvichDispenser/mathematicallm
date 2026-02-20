@@ -3,11 +3,11 @@ Demo: pure strategies in the Escalation Game.
 
 The Escalation Game (perfect information, 2 players):
 
-    Player 1 [p1_root]
+    Player 1 [root]
     ├── Accept ──────────────────── (0, 0)
-    └── Threaten [p2_node]
+    └── Threaten [threaten]
         ├── Concede ─────────────── (1, -2)
-        └── Escalate [p1_again]
+        └── Escalate [escalate]
             ├── Give Up ─────────── (-2, 1)
             └── War ─────────────── (-1, -1)
 
@@ -29,27 +29,27 @@ from zermelo.services.equilibria import find_pure_nash_equilibria
 
 def build_escalation_game() -> GameTree:
     tree = GameTree(num_players=2)
-    tree.create_node("Player 1", "p1_root", data=DecisionNodeData(player=0))
+    tree.create_node("Player 1", "root", data=DecisionNodeData(player=0))
     tree.create_node(
-        "Accept", "accept", parent="p1_root", data=TerminalNodeData(payoffs=(0, 0))
+        "Accept", "accept", parent="root", data=TerminalNodeData(payoffs=(0, 0))
     )
     tree.create_node(
-        "Player 2", "p2_node", parent="p1_root", data=DecisionNodeData(player=1)
+        "Player 2", "threaten", parent="root", data=DecisionNodeData(player=1)
     )
     tree.create_node(
-        "Concede", "concede", parent="p2_node", data=TerminalNodeData(payoffs=(1, -2))
+        "Concede", "concede", parent="threaten", data=TerminalNodeData(payoffs=(1, -2))
     )
     tree.create_node(
         "Player 1 again",
-        "p1_again",
-        parent="p2_node",
+        "escalate",
+        parent="threaten",
         data=DecisionNodeData(player=0),
     )
     tree.create_node(
-        "Give Up", "give_up", parent="p1_again", data=TerminalNodeData(payoffs=(-2, 1))
+        "Give Up", "give_up", parent="escalate", data=TerminalNodeData(payoffs=(-2, 1))
     )
     tree.create_node(
-        "War", "war", parent="p1_again", data=TerminalNodeData(payoffs=(-1, -1))
+        "War", "war", parent="escalate", data=TerminalNodeData(payoffs=(-1, -1))
     )
     return tree
 
@@ -100,15 +100,15 @@ def main() -> None:
     # ------------------------------------------------------------------
     print("--- Comparison ---\n")
     print(
-        "Player 1 owns two information sets (p1_root and p1_again).\n"
-        "If they choose Accept at p1_root, p1_again is never reached.\n"
+        "Player 1 owns two information sets (root and escalate).\n"
+        "If they choose Accept at root, escalate is never reached.\n"
         "Full strategies still require a choice there; reduced do not.\n"
     )
     print(f"  Player 1 full strategies:    {len(p1_full)}")
     print(f"  Player 1 reduced strategies: {len(p1_reduced)}")
     print()
     print(
-        "Player 2 owns only p2_node, which is reached only when Player 1\n"
+        "Player 2 owns only threaten, which is reached only when Player 1\n"
         "chooses Threaten. Both strategy types agree for Player 2.\n"
     )
     print(f"  Player 2 full strategies:    {len(p2_full)}")
@@ -188,13 +188,13 @@ def main() -> None:
     print()
     print(
         "Both PSNE have P0 choosing Accept, which ends the game immediately.\n"
-        "P1's strategy specifies what to do at p2_node, but that's unreachable.\n"
+        "P1's strategy specifies what to do at threaten, but that's unreachable.\n"
         "So P1's payoff is (0,0) regardless of whether they 'choose' Concede\n"
         "or Escalate in their strategy.\n"
     )
     print(
         "This is why BOTH (Accept+GiveUp, Escalate) and (Accept+War, Escalate)\n"
-        "are Nash equilibria - P1's action at p2_node doesn't affect the outcome!\n"
+        "are Nash equilibria - P1's action at threaten doesn't affect the outcome!\n"
     )
     print("The SPNE from backward induction:")
     print(f"  {spne_equilibria[0].path}")
@@ -204,7 +204,7 @@ def main() -> None:
         "SPNE is a REFINEMENT of Nash equilibrium. It eliminates equilibria\n"
         "that rely on non-credible threats by requiring rationality at every\n"
         "subgame. Since P0 choosing Accept ends the game before P1 moves,\n"
-        "the SPNE path is just {p1_root: accept}.\n"
+        "the SPNE path is just {root: accept}.\n"
     )
 
 

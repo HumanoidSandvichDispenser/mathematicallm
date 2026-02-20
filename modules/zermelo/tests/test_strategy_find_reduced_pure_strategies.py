@@ -31,12 +31,12 @@ def test_escalation_game_p0_strategies(escalation_game):
     """Player 0's reduced strategies are correct."""
     strategies = find_reduced_pure_strategies(escalation_game, player=0)
     expected = {
-        # Accept at root — p1_again is unreachable, so not specified
-        Strategy({"p1_root": "accept"}),
+        # Accept at root — escalate is unreachable, so not specified
+        Strategy({"root": "accept"}),
         # Threaten, then Give Up
-        Strategy({"p1_root": "p2_node", "p1_again": "give_up"}),
+        Strategy({"root": "threaten", "escalate": "give_up"}),
         # Threaten, then War
-        Strategy({"p1_root": "p2_node", "p1_again": "war"}),
+        Strategy({"root": "threaten", "escalate": "war"}),
     }
     assert strategies == expected
 
@@ -51,8 +51,8 @@ def test_escalation_game_p1_strategies(escalation_game):
     """Player 1's reduced strategies are correct."""
     strategies = find_reduced_pure_strategies(escalation_game, player=1)
     expected = {
-        Strategy({"p2_node": "concede"}),
-        Strategy({"p2_node": "p1_again"}),
+        Strategy({"threaten": "concede"}),
+        Strategy({"threaten": "escalate"}),
     }
     assert strategies == expected
 
@@ -70,10 +70,10 @@ def test_escalation_game_no_empty_strategy_p1(escalation_game):
 
 
 def test_escalation_game_no_partial_strategy_p0(escalation_game):
-    """Partial strategy (p1_root only, without p1_again when threaten chosen)
+    """Partial strategy (root only, without escalate when threaten chosen)
     must not appear."""
     strategies = find_reduced_pure_strategies(escalation_game, player=0)
-    assert Strategy({"p1_root": "p2_node"}) not in strategies
+    assert Strategy({"root": "threaten"}) not in strategies
 
 
 # ---------------------------------------------------------------------------
