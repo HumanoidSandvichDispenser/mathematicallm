@@ -59,12 +59,17 @@ class DecisionNodeData(BIValue, NodeData):
             If None, defaults to the node's identifier (single-node info set).
             Nodes in the same information set must have the same player and
             the same set of available actions.
+        actions: Optional list of action labels for this decision node.
+            If provided, these are used as the action names in strategies instead
+            of child node identifiers. All nodes in the same information set
+            should have the same actions list.
         bi_value: Computed value from backward induction (inherited from BIValue)
         probability: Edge probability (inherited from NodeData)
     """
 
     player: int = 0
     information_set: Optional[str] = None
+    actions: Optional[list[str]] = None
 
 
 @dataclass

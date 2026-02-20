@@ -52,10 +52,10 @@ def test_imperfect_information_same_actions(imperfect_info_same_actions_tree):
 
     assert len(strategies) == 2
     decision_sets = [s.decisions for s in strategies]
-    assert {"I1": "up_l"} in decision_sets
-    assert {"I1": "down_l"} in decision_sets
-    assert {"I1": "up_r"} not in decision_sets
-    assert {"I1": "down_r"} not in decision_sets
+    assert {"I1": "up"} in decision_sets
+    assert {"I1": "down"} in decision_sets
+    assert {"I1": "up_l"} not in decision_sets
+    assert {"I1": "down_l"} not in decision_sets
 
 
 def test_imperfect_information_multiple_info_sets():

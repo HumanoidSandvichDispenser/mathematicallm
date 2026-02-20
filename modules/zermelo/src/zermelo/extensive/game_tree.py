@@ -163,6 +163,7 @@ class GameTree(treelib.tree.Tree):  # type: ignore
                     "type": "decision",
                     "player": node.data.player,
                     "information_set": node.data.information_set,
+                    "actions": node.data.actions,
                     "probability": sp.srepr(node.data.probability)
                     if node.data.probability
                     else None,
@@ -252,6 +253,7 @@ class GameTree(treelib.tree.Tree):  # type: ignore
                     data_payload = DecisionNodeData(
                         player=node_data["data"]["player"],
                         information_set=node_data["data"].get("information_set"),
+                        actions=node_data["data"].get("actions"),
                         probability=prob,
                         bi_value=bi_val,
                     )

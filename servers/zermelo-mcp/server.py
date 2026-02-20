@@ -63,6 +63,7 @@ def add_decision_node(
     player: int,
     probability: str | None = None,
     information_set: str | None = None,
+    actions: list[str] | None = None,
 ) -> str:
     """
     Add a decision node to the game tree.
@@ -74,6 +75,8 @@ def add_decision_node(
         player: Player index (0-based) who makes the decision at this node
         probability: Optional probability expression for the edge (for chance node children)
         information_set: Optional identifier for the information set (for imperfect information)
+        actions: Optional list of action labels (e.g., ["up", "down"]) for this decision.
+            If provided, these are used as action names in strategies instead of child node IDs.
 
     Returns:
         Success message
@@ -94,7 +97,10 @@ def add_decision_node(
         identifier=node_id,
         parent=parent_id,
         data=DecisionNodeData(
-            player=player, probability=probability, information_set=information_set
+            player=player,
+            probability=probability,
+            information_set=information_set,
+            actions=actions,
         ),
     )
 
@@ -102,7 +108,8 @@ def add_decision_node(
     info_set_info = (
         f" in information set '{information_set}'" if information_set else ""
     )
-    return f"Added decision node '{node_id}' for player {player} under '{parent_id}'{prob_info}{info_set_info}"
+    actions_info = f" with actions {actions}" if actions else ""
+    return f"Added decision node '{node_id}' for player {player} under '{parent_id}'{prob_info}{info_set_info}{actions_info}"
 
 
 @mcp.tool()
@@ -453,8 +460,10 @@ def load_game(game_json: str, name: str | None = None) -> str:
     ```json
     { "type": "decision", "player": <int> }
     ```
-    Optional fields: `"probability"` (edge probability as a number or fraction string
-    e.g. `"1/2"`), `"information_set"` (string id grouping nodes in the same info set).
+    Optional fields:
+    - `"probability"`: edge probability (e.g., `"1/2"`)
+    - `"information_set"`: string id grouping nodes in the same info set
+    - `"actions"`: list of action labels (e.g., `["up", "down"]`) used as action names in strategies
 
     **Chance node** — nature moves with given probabilities on its children:
     ```json

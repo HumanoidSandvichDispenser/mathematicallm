@@ -71,18 +71,33 @@ def _execute_from_node(
                 f"info set {info_set_id}"
             )
 
-        chosen_action_id = strategy.decisions[info_set_id]
-
+        chosen_action = strategy.decisions[info_set_id]
         children = game.children(node_id)
-        child_map = {c.identifier: c.identifier for c in children}
 
-        if chosen_action_id not in child_map:
-            raise ValueError(
-                f"Action {chosen_action_id} is not a valid child of {node_id}. "
-                f"Valid children: {list(child_map.keys())}"
-            )
+        if node.data.actions:
+            action_labels = node.data.actions
+            if chosen_action not in action_labels:
+                raise ValueError(
+                    f"Action {chosen_action} is not in available actions {action_labels} "
+                    f"at {node_id}"
+                )
+            action_index = action_labels.index(chosen_action)
+            if action_index >= len(children):
+                raise ValueError(
+                    f"Action index {action_index} out of range for node {node_id} "
+                    f"with {len(children)} children"
+                )
+            chosen_child_id = children[action_index].identifier
+        else:
+            child_map = {c.identifier: c.identifier for c in children}
+            if chosen_action not in child_map:
+                raise ValueError(
+                    f"Action {chosen_action} is not a valid child of {node_id}. "
+                    f"Valid children: {list(child_map.keys())}"
+                )
+            chosen_child_id = chosen_action
 
-        return _execute_from_node(game, chosen_action_id, profile)
+        return _execute_from_node(game, chosen_child_id, profile)
 
     raise ValueError(f"Unknown node type at {node_id}")
 

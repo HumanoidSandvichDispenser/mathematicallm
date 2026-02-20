@@ -47,13 +47,13 @@ def imperfect_info_same_actions_tree():
         "P1 at left",
         "p1_l",
         parent="root",
-        data=DecisionNodeData(player=1, information_set="I1"),
+        data=DecisionNodeData(player=1, information_set="I1", actions=["up", "down"]),
     )
     tree.create_node(
         "P1 at right",
         "p1_r",
         parent="root",
-        data=DecisionNodeData(player=1, information_set="I1"),
+        data=DecisionNodeData(player=1, information_set="I1", actions=["up", "down"]),
     )
     tree.create_node(
         "Up L", "up_l", parent="p1_l", data=TerminalNodeData(payoffs=(1, 1))

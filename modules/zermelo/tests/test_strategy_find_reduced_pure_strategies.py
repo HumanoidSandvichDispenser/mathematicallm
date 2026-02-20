@@ -143,15 +143,15 @@ def test_imperfect_info_p0_reduced(imperfect_info_same_actions_tree):
 
 def test_imperfect_info_p1_reduced(imperfect_info_same_actions_tree):
     """Player 1 has 2 reduced strategies — one info set I1 with actions
-    up_l / up_r (first node's children)."""
+    up / down (action labels from actions field)."""
     strategies = find_reduced_pure_strategies(
         imperfect_info_same_actions_tree, player=1
     )
     # Info set I1 is always reached (P0 always moves to a P1 node)
-    # The first node of I1 is p1_l with children up_l and down_l
+    # The actions are defined as ["up", "down"] in the info set
     expected = {
-        Strategy({"I1": "up_l"}),
-        Strategy({"I1": "down_l"}),
+        Strategy({"I1": "up"}),
+        Strategy({"I1": "down"}),
     }
     assert strategies == expected
 

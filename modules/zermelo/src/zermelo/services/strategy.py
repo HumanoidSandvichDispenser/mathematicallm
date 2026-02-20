@@ -30,8 +30,11 @@ def find_full_pure_strategies(game: GameTree, player: int) -> set[Strategy]:
         if not nodes:
             continue
         node = nodes[0]
-        children = game.children(node.identifier)
-        action_ids = [child.identifier for child in children]
+        if node.data.actions:
+            action_ids = node.data.actions
+        else:
+            children = game.children(node.identifier)
+            action_ids = [child.identifier for child in children]
         if action_ids:
             info_set_actions.append(action_ids)
 
@@ -97,6 +100,14 @@ def find_reduced_pure_strategies(game: GameTree, player: int) -> set[Strategy]:
 
             # This player's decision node
             info_set_id = node.data.information_set or node_id
+            first_node = game.get_nodes_in_information_set(info_set_id)[0]
+            use_action_labels = first_node.data.actions is not None
+            if use_action_labels:
+                available_actions = list(first_node.data.actions)
+                first_children = game.children(first_node.identifier)
+            else:
+                first_children = game.children(first_node.identifier)
+                available_actions = [c.identifier for c in first_children]
 
             if info_set_id in decisions:
                 # Already committed to an action for this info set —
@@ -104,14 +115,15 @@ def find_reduced_pure_strategies(game: GameTree, player: int) -> set[Strategy]:
                 # In imperfect info, info set nodes may have different children,
                 # so we use the child at the same index as the chosen action
                 # within the first node of the info set.
-                chosen_child_id = decisions[info_set_id]
-                first_node = game.get_nodes_in_information_set(info_set_id)[0]
-                first_children = game.children(first_node.identifier)
-                chosen_index = next(
-                    i
-                    for i, c in enumerate(first_children)
-                    if c.identifier == chosen_child_id
-                )
+                chosen_action = decisions[info_set_id]
+                if use_action_labels:
+                    chosen_index = available_actions.index(chosen_action)
+                else:
+                    chosen_index = next(
+                        i
+                        for i, c in enumerate(first_children)
+                        if c.identifier == chosen_action
+                    )
                 this_children = game.children(node_id)
                 if chosen_index < len(this_children):
                     return traverse(this_children[chosen_index].identifier, decisions)
@@ -121,12 +133,9 @@ def find_reduced_pure_strategies(game: GameTree, player: int) -> set[Strategy]:
             # Use the first node of the info set's children as canonical
             # action IDs so that all nodes in the info set share the same
             # action labels and de-duplicate correctly.
-            first_node = game.get_nodes_in_information_set(info_set_id)[0]
-            first_children = game.children(first_node.identifier)
             results = []
-            for action_index, canonical_child in enumerate(first_children):
-                canonical_action_id = canonical_child.identifier
-                new_decisions = {**decisions, info_set_id: canonical_action_id}
+            for action_index, action_label in enumerate(available_actions):
+                new_decisions = {**decisions, info_set_id: action_label}
                 # Follow this node's child at the same index
                 if action_index < len(children):
                     results.extend(
