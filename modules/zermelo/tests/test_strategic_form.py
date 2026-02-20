@@ -176,4 +176,75 @@ def test_nested_chance_nodes():
     assert payoff == (5, 5)
 
 
+def test_prisoners_dilemma_strategic_form():
+    """
+    Test strategic form conversion for the Prisoner's Dilemma.
+    """
+    import sympy as sp
+    from zermelo.extensive import GameTree, DecisionNodeData, TerminalNodeData
+    from zermelo.services.strategic_form import extensive_to_strategic
+    from zermelo.extensive.strategy import Strategy
+
+    tree = GameTree(num_players=2)
+
+    tree.create_node(
+        "P0", "root", data=DecisionNodeData(player=0, actions=["cooperate", "defect"])
+    )
+
+    tree.create_node(
+        "P0 Cooperate",
+        "p0_c",
+        parent="root",
+        data=DecisionNodeData(
+            player=1, information_set="I1", actions=["cooperate", "defect"]
+        ),
+    )
+
+    tree.create_node(
+        "P0 Defect",
+        "p0_d",
+        parent="root",
+        data=DecisionNodeData(
+            player=1, information_set="I1", actions=["cooperate", "defect"]
+        ),
+    )
+
+    tree.create_node(
+        "P1 Cooperate",
+        "p1_c_from_c",
+        parent="p0_c",
+        data=TerminalNodeData(payoffs=(3, 3)),
+    )
+    tree.create_node(
+        "P1 Defect", "p1_d_from_c", parent="p0_c", data=TerminalNodeData(payoffs=(0, 5))
+    )
+
+    tree.create_node(
+        "P1 Cooperate",
+        "p1_c_from_d",
+        parent="p0_d",
+        data=TerminalNodeData(payoffs=(5, 0)),
+    )
+    tree.create_node(
+        "P1 Defect", "p1_d_from_d", parent="p0_d", data=TerminalNodeData(payoffs=(1, 1))
+    )
+
+    strategies, payoffs = extensive_to_strategic(tree)
+
+    assert len(strategies[0]) == 2
+    assert len(strategies[1]) == 2
+
+    assert payoffs[0, 0, 0] == 3
+    assert payoffs[0, 0, 1] == 3
+
+    assert payoffs[0, 1, 0] == 0
+    assert payoffs[0, 1, 1] == 5
+
+    assert payoffs[1, 0, 0] == 5
+    assert payoffs[1, 0, 1] == 0
+
+    assert payoffs[1, 1, 0] == 1
+    assert payoffs[1, 1, 1] == 1
+
+
 import sympy as sp
