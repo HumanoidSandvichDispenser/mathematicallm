@@ -6,8 +6,10 @@ dependencies = [
     "sympy",
 ]
 
-[tool.uv.sources]
-mathematicallm-graph = { workspace = true }
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
 
 [build-system]
 requires = ["hatchling"]
