@@ -167,12 +167,15 @@ def main() -> None:
 
     game_spne = build_escalation_game()
     game_spne.backward_induction(mutate=True)
-    spne_equilibria = game_spne.get_all_equilibria()
+    spne_equilibria = game_spne.get_all_spne()
 
     print(f"Found {len(spne_equilibria)} subgame perfect Nash equilibrium(s):\n")
-    for eq in spne_equilibria:
+    for i, eq in enumerate(spne_equilibria):
+        print(f"SPNE {i + 1}:")
         print(f"  Payoffs: {eq.payoffs}")
-        print(f"  Path: {eq.actions}")
+        print(f"  Path: {eq.path}")
+        for player_idx, strategy in enumerate(eq.strategies):
+            print(f"  Player {player_idx} strategy: {strategy}")
         print()
 
     # ------------------------------------------------------------------
@@ -194,7 +197,7 @@ def main() -> None:
         "are Nash equilibria - P1's action at p2_node doesn't affect the outcome!\n"
     )
     print("The SPNE from backward induction:")
-    print(f"  {spne_equilibria[0].actions}")
+    print(f"  {spne_equilibria[0].path}")
     print(f"  Payoffs: {spne_equilibria[0].payoffs}")
     print()
     print(

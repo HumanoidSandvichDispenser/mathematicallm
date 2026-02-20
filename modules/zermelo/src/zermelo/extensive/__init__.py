@@ -40,7 +40,7 @@ from .node_data import (
     ChanceNodeData,
     TerminalNodeData,
 )
-from .equilibrium import EquilibriumPath
+from .equilibrium import EquilibriumPath, SubgamePerfectEquilibrium
 
 __all__ = [
     "GameTree",
@@ -51,4 +51,5 @@ __all__ = [
     "ChanceNodeData",
     "TerminalNodeData",
     "EquilibriumPath",
+    "SubgamePerfectEquilibrium",
 ]

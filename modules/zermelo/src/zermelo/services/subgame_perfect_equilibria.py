@@ -15,7 +15,8 @@ from ..extensive.node_data import (
     ChanceNodeData,
     TerminalNodeData,
 )
-from ..extensive.equilibrium import EquilibriumPath
+from ..extensive.equilibrium import EquilibriumPath, SubgamePerfectEquilibrium
+from ..extensive.strategy import Strategy
 
 if TYPE_CHECKING:
     from ..extensive.game_tree import GameTree
@@ -204,6 +205,86 @@ def get_all_equilibria(
     ]
 
     return equilibria
+
+
+def get_all_spne(
+    tree: "GameTree",
+    node_id: Optional[str] = None,
+) -> list[SubgamePerfectEquilibrium]:
+    """
+    Enumerate all subgame perfect Nash equilibria with complete strategies.
+
+    This method must be called AFTER backward_induction() has been run with mutate=True.
+    It returns not just the equilibrium path but also the complete strategy for each
+    player at ALL their information sets, not just those on the equilibrium path.
+
+    This is important because if a player deviates from the equilibrium path, the other
+    players' strategies still specify their optimal responses at every subgame.
+
+    Args:
+        tree: The game tree to solve
+        node_id: Starting node (defaults to root)
+
+    Returns:
+        List of SubgamePerfectEquilibrium objects, one per equilibrium
+
+    Raises:
+        ValueError: If backward_induction hasn't been run yet (bi_value not set)
+    """
+    equilibria_paths = get_all_equilibria(tree, node_id)
+
+    if node_id is None:
+        if tree.root is None:
+            raise ValueError("Tree is empty (no root node)")
+        node_id = tree.root
+
+    player_strategies = _build_spne_strategies(tree, node_id)
+
+    return [
+        SubgamePerfectEquilibrium(
+            payoffs=eq.payoffs,
+            path=eq.actions,
+            strategies=player_strategies,
+        )
+        for eq in equilibria_paths
+    ]
+
+
+def _build_spne_strategies(
+    tree: "GameTree",
+    node_id: str,
+) -> list[Strategy]:
+    """
+    Build complete SPNE strategies for all players.
+
+    For each player, iterates through all their information sets and determines
+    the optimal action at each based on backward induction values.
+    """
+    num_players = tree.num_players
+    all_strategies: list[Strategy] = []
+
+    for player in range(num_players):
+        player_info_sets = tree.get_information_sets(player)
+        decisions: dict[str, str] = {}
+
+        for info_set_id in player_info_sets:
+            nodes = tree.get_nodes_in_information_set(info_set_id)
+            if not nodes:
+                continue
+
+            node = nodes[0]
+            if (
+                not hasattr(node.data, "optimal_children")
+                or not node.data.optimal_children
+            ):
+                continue
+
+            chosen_child = node.data.optimal_children[0]
+            decisions[info_set_id] = chosen_child
+
+        all_strategies.append(Strategy(decisions))
+
+    return all_strategies
 
 
 def _compute_expected_value(
