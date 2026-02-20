@@ -237,11 +237,8 @@ class GameTree(treelib.tree.Tree):  # type: ignore
             data_payload = None
             if node_data["data"]:
                 dtype = node_data["data"]["type"]
-                prob = (
-                    sp.sympify(node_data["data"]["probability"])
-                    if node_data["data"]["probability"]
-                    else None
-                )
+                raw_prob = node_data["data"].get("probability")
+                prob = sp.sympify(raw_prob) if raw_prob is not None else None
 
                 if dtype == "decision":
                     bi_val = None
@@ -281,7 +278,7 @@ class GameTree(treelib.tree.Tree):  # type: ignore
 
             # Create the node
             tree.create_node(
-                tag=node_data["tag"],
+                tag=node_data.get("tag") or node_id,
                 identifier=node_id,
                 parent=parent_id,
                 data=data_payload,
