@@ -8,6 +8,7 @@ Node type is determined by isinstance checks rather than discriminated unions.
 from dataclasses import dataclass, field
 from typing import Optional
 from sympy import Expr, sympify
+from collections import defaultdict
 
 
 @dataclass
@@ -34,17 +35,17 @@ class BIValue:
     """
     Mixin for nodes that receive a backed-up value from backward induction.
 
-    This mixin provides a bi_value field that is mutated during backward induction
-    to store the computed value at this node. Only DecisionNodeData and ChanceNodeData
-    inherit this mixin; TerminalNodeData implements bi_value as a property.
-
     Attributes:
-        bi_value: Tuple of symbolic expressions representing each player's expected payoff
-        optimal_children: List of child node IDs that achieve optimal payoff (for decision nodes with ties)
+        bi_value: List of payoff tuples representing all possible equilibrium payoffs at this node
+        optimal_children: List of child node IDs that achieve the optimal payoff for the decision-maker
+        child_bi_values: Dict mapping every child node ID to its list of payoff tuples.
+            Populated during backward induction so the enumeration pass can access
+            off-path subtree values without re-traversing the tree.
     """
 
-    bi_value: Optional[tuple[Expr, ...]] = None
+    bi_value: Optional[list[tuple[Expr, ...]]] = None
     optimal_children: list[str] = field(default_factory=list)
+    child_bi_values: dict[str, list[tuple[Expr, ...]]] = field(default_factory=dict)
 
 
 @dataclass
@@ -101,7 +102,7 @@ class TerminalNodeData(NodeData):
         self,
         payoffs: tuple[Expr | int, ...],
         probability: Optional[Expr | int] = None,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(**kwargs)
         self.payoffs = self.__sympify_tuple(payoffs)
@@ -117,7 +118,7 @@ class TerminalNodeData(NodeData):
 
     def __post_init__(self):
         super().__post_init__()
-        #self.payoffs = tuple(sympify(p) for p in self.payoffs)
+        # self.payoffs = tuple(sympify(p) for p in self.payoffs)
 
     @property
     def bi_value(self) -> tuple[Expr, ...]:
