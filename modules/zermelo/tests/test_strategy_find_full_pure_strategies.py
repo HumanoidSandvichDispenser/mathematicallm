@@ -8,7 +8,7 @@ from zermelo.extensive import (
     DecisionNodeData,
     TerminalNodeData,
 )
-from zermelo.services.strategy_service import find_full_pure_strategies
+from zermelo.services.strategy import find_full_pure_strategies
 
 
 def test_perfect_information_single_decision(simple_perfect_info_tree):

@@ -19,7 +19,7 @@ actually reachable given the player's own earlier choices.
 """
 
 from zermelo.extensive import GameTree, DecisionNodeData, TerminalNodeData
-from zermelo.services.strategy_service import (
+from zermelo.services.strategy import (
     find_full_pure_strategies,
     find_reduced_pure_strategies,
 )

@@ -13,7 +13,7 @@ from zermelo.services.strategic_form import (
     execute_strategy_profile,
     extensive_to_strategic,
 )
-from zermelo.services.strategy_service import find_full_pure_strategies
+from zermelo.services.strategy import find_full_pure_strategies
 from zermelo.extensive.strategy import Strategy
 
 

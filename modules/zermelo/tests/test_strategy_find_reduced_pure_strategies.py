@@ -12,7 +12,7 @@ from zermelo.extensive import (
     DecisionNodeData,
     TerminalNodeData,
 )
-from zermelo.services.strategy_service import find_reduced_pure_strategies
+from zermelo.services.strategy import find_reduced_pure_strategies
 from zermelo.extensive.strategy import Strategy
 
 

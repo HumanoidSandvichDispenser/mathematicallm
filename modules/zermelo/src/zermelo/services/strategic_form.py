@@ -12,7 +12,7 @@ from sympy import MutableDenseNDimArray, Expr, simplify
 from zermelo.extensive.game_node import GameNode
 from zermelo.extensive.game_tree import GameTree
 from zermelo.extensive.strategy import Strategy
-from zermelo.services.strategy_service import find_full_pure_strategies
+from zermelo.services.strategy import find_full_pure_strategies
 
 
 def _execute_from_node(
