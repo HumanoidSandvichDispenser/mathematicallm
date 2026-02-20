@@ -7,7 +7,16 @@ from zermelo.extensive import (
     ChanceNodeData,
     TerminalNodeData,
 )
+from zermelo.extensive.strategy import Strategy
 from zermelo.services import subgame_perfect_equilibria as sge
+from zermelo.services.strategic_form import (
+    execute_strategy_profile as exec_profile,
+    extensive_to_strategic,
+)
+from zermelo.services.strategy import (
+    find_full_pure_strategies,
+    find_reduced_pure_strategies,
+)
 
 mcp = FastMCP("zermelo-mcp")
 
@@ -53,6 +62,7 @@ def add_decision_node(
     parent_id: str,
     player: int,
     probability: str | None = None,
+    information_set: str | None = None,
 ) -> str:
     """
     Add a decision node to the game tree.
@@ -63,6 +73,7 @@ def add_decision_node(
         parent_id: ID of the parent node
         player: Player index (0-based) who makes the decision at this node
         probability: Optional probability expression for the edge (for chance node children)
+        information_set: Optional identifier for the information set (for imperfect information)
 
     Returns:
         Success message
@@ -82,11 +93,16 @@ def add_decision_node(
         tag=node_id,
         identifier=node_id,
         parent=parent_id,
-        data=DecisionNodeData(player=player, probability=probability),
+        data=DecisionNodeData(
+            player=player, probability=probability, information_set=information_set
+        ),
     )
 
     prob_info = f" with edge probability {probability}" if probability else ""
-    return f"Added decision node '{node_id}' for player {player} under '{parent_id}'{prob_info}"
+    info_set_info = (
+        f" in information set '{information_set}'" if information_set else ""
+    )
+    return f"Added decision node '{node_id}' for player {player} under '{parent_id}'{prob_info}{info_set_info}"
 
 
 @mcp.tool()
@@ -183,8 +199,8 @@ def add_terminal_node(
     return f"Added terminal node '{node_id}' under '{parent_id}' with payoffs {payoff_values}{prob_info}"
 
 
-@mcp.tool()
-def solve_game(game_id: str) -> str:
+@mcp.tool(title="Solve perfect game with backward induction")
+def solve_perfect_game(game_id: str) -> str:
     """
     Solve the game using backward induction.
 
@@ -234,52 +250,7 @@ def solve_game(game_id: str) -> str:
         return f"Error solving game: {e}"
 
 
-@mcp.tool()
-def get_all_equilibria(game_id: str) -> str:
-    """
-    Get all subgame perfect Nash equilibrium paths (payoffs + on-path actions only).
-
-    Must be called after solve_game(). When there are ties (players indifferent
-    between actions), this enumerates all possible equilibrium paths.
-
-    Use get_all_spne() instead if you need the complete strategy profiles,
-    i.e. what each player would do at every information set (including off-path).
-
-    Args:
-        game_id: ID of the game tree
-
-    Returns:
-        All equilibrium paths with payoffs and on-path action profiles
-    """
-    if game_id not in _games:
-        return f"Error: Game '{game_id}' not found"
-
-    tree = _games[game_id]
-
-    try:
-        equilibria = sge.get_all_equilibria(tree)
-
-        output = [f"Equilibria for '{game_id}':"]
-        output.append(f"Found {len(equilibria)} equilibrium/equilibria\n")
-
-        for i, eq in enumerate(equilibria, 1):
-            payoff_strs = [str(p) for p in eq.payoffs]
-            output.append(f"Equilibrium {i}:")
-            output.append(f"  Payoffs: ({', '.join(payoff_strs)})")
-            if eq.actions:
-                output.append(f"  Actions:")
-                for node_id, child_id in sorted(eq.actions.items()):
-                    output.append(f"    {node_id} → {child_id}")
-            else:
-                output.append(f"  Actions: (none - tree is just a terminal node)")
-            output.append("")
-
-        return "\n".join(output)
-    except Exception as e:
-        return f"Error getting equilibria: {e}"
-
-
-@mcp.tool()
+@mcp.tool(title="Get all SPNEs")
 def get_all_spne(game_id: str) -> str:
     """
     Get all subgame perfect Nash equilibria with complete strategy profiles.
@@ -338,7 +309,7 @@ def get_all_spne(game_id: str) -> str:
         return f"Error getting SPNE: {e}"
 
 
-@mcp.tool()
+@mcp.tool(title="Get game state as JSON")
 def get_game_state(game_id: str, include_solution: bool = False) -> str:
     """
     Get the current state of a game tree in JSON format.
@@ -548,6 +519,146 @@ def load_game(game_json: str, name: str | None = None) -> str:
         f"Loaded game '{game_id}' with {tree.num_players} players and {num_nodes} nodes. "
         f"Call solve_game('{game_id}') to run backward induction (only for perfect information)."
     )
+
+
+@mcp.tool(title="Find pure strategies for a player")
+def find_player_strategies(game_id: str, player: int, reduced: bool = False) -> str:
+    """
+    Find all pure strategies for a player in an extensive-form game.
+
+    Args:
+        game_id: ID of the game tree
+        player: Player index (0-based)
+        reduced: If True, find reduced pure strategies; otherwise full pure strategies (default: False)
+
+    Returns:
+        A description of all strategies for the player
+    """
+    if game_id not in _games:
+        return f"Error: Game '{game_id}' not found"
+
+    tree = _games[game_id]
+
+    try:
+        if reduced:
+            strategies = find_reduced_pure_strategies(tree, player)
+            strategy_type = "reduced"
+        else:
+            strategies = find_full_pure_strategies(tree, player)
+            strategy_type = "full"
+
+        output = [
+            f"Found {len(strategies)} {strategy_type} pure strategies for player {player} in '{game_id}':"
+        ]
+
+        for i, strategy in enumerate(sorted(strategies, key=repr), 1):
+            if strategy.decisions:
+                output.append(f"  Strategy {i}:")
+                for info_set, action in sorted(strategy.decisions.items()):
+                    output.append(f"    {info_set} → {action}")
+            else:
+                output.append(f"  Strategy {i}: (empty)")
+
+        return "\n".join(output)
+    except Exception as e:
+        return f"Error finding strategies: {e}"
+
+
+@mcp.tool(title="Compute strategic form")
+def compute_strategic_form(game_id: str) -> str:
+    """
+    Convert an extensive-form game to strategic (normal) form.
+
+    Produces a payoff tensor where entry [i0, i1, ..., ik, p] contains
+    player p's payoff when player 0 plays strategy i0, player 1 plays
+    strategy i1, etc.
+
+    Args:
+        game_id: ID of the game tree
+
+    Returns:
+        A description of the strategic form with all strategy profiles and payoffs
+    """
+    if game_id not in _games:
+        return f"Error: Game '{game_id}' not found"
+
+    tree = _games[game_id]
+
+    try:
+        strategies, payoffs = extensive_to_strategic(tree)
+
+        output = [
+            f"Strategic form for '{game_id}':",
+            f"Players: {tree.num_players}",
+        ]
+
+        for player_idx, player_strategies in enumerate(strategies):
+            output.append(
+                f"\nPlayer {player_idx} strategies ({len(player_strategies)}):"
+            )
+            for i, strategy in enumerate(player_strategies):
+                if strategy.decisions:
+                    decisions_str = ", ".join(
+                        f"{info_set}→{action}"
+                        for info_set, action in sorted(strategy.decisions.items())
+                    )
+                    output.append(f"  {i}: {decisions_str}")
+                else:
+                    output.append(f"  {i}: (empty)")
+
+        output.append(f"\nPayoff tensor shape: {payoffs.shape}")
+
+        total_profiles = 1
+        for n in payoffs.shape[:-1]:
+            total_profiles *= n
+        output.append(f"Total strategy profiles: {total_profiles}")
+
+        return "\n".join(output)
+    except Exception as e:
+        return f"Error computing strategic form: {e}"
+
+
+@mcp.tool(title="Execute strategy profile")
+def execute_profile(game_id: str, profile_json: str) -> str:
+    """
+    Execute a strategy profile and return the resulting payoff.
+
+    Given a game tree and a mapping from player index to their Strategy,
+    walks through the tree from the root and returns the terminal payoff.
+
+    Args:
+        game_id: ID of the game tree
+        profile_json: JSON string mapping player indices to their strategy decisions.
+            Format: {"<player_idx>": {"<info_set>": "<action_id>", ...}, ...}
+            Example: {"0": {"root": "left"}, "1": {}}
+
+    Returns:
+        The resulting payoff tuple
+    """
+    import json
+
+    if game_id not in _games:
+        return f"Error: Game '{game_id}' not found"
+
+    tree = _games[game_id]
+
+    try:
+        profile_data = json.loads(profile_json)
+    except json.JSONDecodeError as e:
+        return f"Error: Invalid JSON — {e}"
+
+    try:
+        profile: dict[int, Strategy] = {}
+        for player_str, decisions in profile_data.items():
+            player = int(player_str)
+            profile[player] = Strategy(decisions)
+
+        payoff = exec_profile(tree, profile)
+
+        payoff_strs = [str(p) for p in payoff]
+        return f"Payoff: ({', '.join(payoff_strs)})"
+    except Exception as e:
+        return f"Error executing profile: {e}"
 
 
 if __name__ == "__main__":
