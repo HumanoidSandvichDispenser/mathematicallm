@@ -48,7 +48,9 @@ class GameTree(treelib.tree.Tree):  # type: ignore
         result = tree.get_node("root").data.bi_value
     """
 
-    def __init__(self, num_players: int = 2, tree=None, deep=False, node_class=GameNode, **kwargs):
+    def __init__(
+        self, num_players: int = 2, tree=None, deep=False, node_class=GameNode, **kwargs
+    ):
         """
         Initialize a GameTree.
 
@@ -62,6 +64,66 @@ class GameTree(treelib.tree.Tree):  # type: ignore
         self.num_players = num_players
         super().__init__(tree=tree, deep=deep, node_class=node_class, **kwargs)
 
+    def get_information_sets(self, player: int) -> set[str]:
+        """
+        Get all information set IDs for a given player.
+
+        Args:
+            player: Zero-indexed player number
+
+        Returns:
+            Set of information set IDs belonging to this player
+        """
+        info_sets = set()
+        for node in self.all_nodes():
+            if node.is_decision and node.data.player == player:
+                info_set_id = node.data.information_set
+                if info_set_id is None:
+                    info_set_id = node.identifier
+                info_sets.add(info_set_id)
+        return info_sets
+
+    def get_nodes_in_information_set(self, info_set_id: str) -> list[GameNode]:
+        """
+        Get all nodes belonging to a given information set.
+
+        Args:
+            info_set_id: The information set identifier
+
+        Returns:
+            List of GameNodes in this information set
+        """
+        nodes = []
+        for node in self.all_nodes():
+            if node.is_decision:
+                node_info_set = node.data.information_set
+                if node_info_set is None:
+                    node_info_set = node.identifier
+                if node_info_set == info_set_id:
+                    nodes.append(node)
+        return nodes
+
+    def is_perfect_information(self) -> bool:
+        """
+        Check if this is a perfect information game.
+
+        A game is perfect information if every information set contains exactly
+        one node. If any player has an information set with multiple nodes,
+        the game is imperfect information.
+
+        Returns:
+            True if the game is perfect information, False otherwise
+        """
+        for node in self.all_nodes():
+            if node.is_decision:
+                info_set_id = node.data.information_set
+                if info_set_id is None:
+                    info_set_id = node.identifier
+                nodes_in_set = self.get_nodes_in_information_set(info_set_id)
+                if len(nodes_in_set) > 1:
+                    return False
+        return True
+
     def all_nodes(self) -> list[GameNode]:
         """
         Get a list of all nodes in the tree, typed as GameNode.
@@ -69,9 +131,7 @@ class GameTree(treelib.tree.Tree):  # type: ignore
         return list(self._nodes.values())
 
     def backward_induction(
-        self,
-        node_id: Optional[str] = None,
-        mutate: bool = False
+        self, node_id: Optional[str] = None, mutate: bool = False
     ) -> tuple[Expr, ...]:
         """
         Compute backward induction solution from the given node.
@@ -98,6 +158,13 @@ class GameTree(treelib.tree.Tree):  # type: ignore
             if self.root is None:
                 raise ValueError("Tree is empty (no root node)")
             node_id = self.root
+
+        if not self.is_perfect_information():
+            raise NotImplementedError(
+                "This game has imperfect information (multiple nodes per information set). "
+                "Backward induction requires perfect information. "
+                "Use algorithms like Counterfactual Regret Minimization (CFR) for imperfect information games."
+            )
 
         if not mutate:
             # Work on a copy to avoid modifying the original tree
@@ -127,8 +194,7 @@ class GameTree(treelib.tree.Tree):  # type: ignore
             )
 
         child_payoffs = [
-            self.backward_induction(child.identifier, mutate=True)
-            for child in children
+            self.backward_induction(child.identifier, mutate=True) for child in children
         ]
 
         # Chance node: expected value (probability-weighted sum)
@@ -139,17 +205,21 @@ class GameTree(treelib.tree.Tree):  # type: ignore
 
         # Decision node: maximize current player's payoff
         if isinstance(node.data, DecisionNodeData):
-            result, optimal_indices = self._compute_optimal_choice(node.data.player, children, child_payoffs)
+            result, optimal_indices = self._compute_optimal_choice(
+                node.data.player, children, child_payoffs
+            )
             node.data.bi_value = result
             # Store the IDs of all optimal children
-            node.data.optimal_children = [children[idx].identifier for idx in optimal_indices]
+            node.data.optimal_children = [
+                children[idx].identifier for idx in optimal_indices
+            ]
             return result
 
-        raise ValueError(
-            f"Unknown node type at {node_id}: {type(node.data).__name__}"
-        )
+        raise ValueError(f"Unknown node type at {node_id}: {type(node.data).__name__}")
 
-    def get_all_equilibria(self, node_id: Optional[str] = None) -> list[EquilibriumPath]:
+    def get_all_equilibria(
+        self, node_id: Optional[str] = None
+    ) -> list[EquilibriumPath]:
         """
         Enumerate all subgame perfect Nash equilibria.
 
@@ -185,7 +255,7 @@ class GameTree(treelib.tree.Tree):  # type: ignore
             raise ValueError(f"Node with id {node_id} not found")
 
         # Check that BI has been run
-        if hasattr(node.data, 'bi_value'):
+        if hasattr(node.data, "bi_value"):
             if node.data.bi_value is None:
                 raise ValueError(
                     "backward_induction has not been run yet. "
@@ -193,7 +263,9 @@ class GameTree(treelib.tree.Tree):  # type: ignore
                 )
 
         # Helper function to recursively enumerate equilibria
-        def enumerate_paths(current_node_id: str, current_actions: dict[str, str]) -> list[dict[str, str]]:
+        def enumerate_paths(
+            current_node_id: str, current_actions: dict[str, str]
+        ) -> list[dict[str, str]]:
             """
             Recursively enumerate all equilibrium action profiles from this node down.
 
@@ -244,7 +316,11 @@ class GameTree(treelib.tree.Tree):  # type: ignore
         # Convert to EquilibriumPath objects
         root_node = self.get_node(node_id)
         assert isinstance(root_node, GameNode)
-        payoffs = root_node.data.bi_value if hasattr(root_node.data, 'bi_value') else root_node.data.payoffs
+        payoffs = (
+            root_node.data.bi_value
+            if hasattr(root_node.data, "bi_value")
+            else root_node.data.payoffs
+        )
 
         equilibria = [
             EquilibriumPath(payoffs=payoffs, actions=actions)
@@ -253,11 +329,10 @@ class GameTree(treelib.tree.Tree):  # type: ignore
 
         return equilibria
 
-
     def _compute_expected_value(
         self,
         children: Sequence,  # type: ignore
-        child_payoffs: list[tuple[Expr, ...]]
+        child_payoffs: list[tuple[Expr, ...]],
     ) -> tuple[Expr, ...]:
         """
         Compute expected value across chance node children.
@@ -283,7 +358,11 @@ class GameTree(treelib.tree.Tree):  # type: ignore
         for player_idx in range(num_players):
             weighted_sum = sp.Integer(0)
             for child, payoffs in zip(children, child_payoffs):
-                prob = child.data.probability if child.data.probability is not None else sp.Integer(1)
+                prob = (
+                    child.data.probability
+                    if child.data.probability is not None
+                    else sp.Integer(1)
+                )
                 player_payoff = payoffs[player_idx]
                 weighted_sum += prob * player_payoff
             expected.append(simplify(weighted_sum))
@@ -294,7 +373,7 @@ class GameTree(treelib.tree.Tree):  # type: ignore
         self,
         player: int,
         children: Sequence,  # type: ignore
-        child_payoffs: list[tuple[Expr, ...]]
+        child_payoffs: list[tuple[Expr, ...]],
     ) -> tuple[tuple[Expr, ...], list[int]]:
         """
         Select ALL children that maximize the decision-maker's payoff.
@@ -337,7 +416,7 @@ class GameTree(treelib.tree.Tree):  # type: ignore
             # Check if current == best (tie)
             is_equal = False
             if diff.is_number:
-                is_equal = (diff == 0)
+                is_equal = diff == 0
             elif diff.is_zero:
                 is_equal = True
 
@@ -375,21 +454,32 @@ class GameTree(treelib.tree.Tree):  # type: ignore
                 node_dict["data"] = {
                     "type": "decision",
                     "player": node.data.player,
-                    "probability": sp.srepr(node.data.probability) if node.data.probability else None,
+                    "information_set": node.data.information_set,
+                    "probability": sp.srepr(node.data.probability)
+                    if node.data.probability
+                    else None,
                 }
                 if include_bi_values and node.data.bi_value is not None:
-                    node_dict["data"]["bi_value"] = tuple(sp.srepr(v) for v in node.data.bi_value)
+                    node_dict["data"]["bi_value"] = tuple(
+                        sp.srepr(v) for v in node.data.bi_value
+                    )
             elif isinstance(node.data, ChanceNodeData):
                 node_dict["data"] = {
                     "type": "chance",
-                    "probability": sp.srepr(node.data.probability) if node.data.probability else None,
+                    "probability": sp.srepr(node.data.probability)
+                    if node.data.probability
+                    else None,
                 }
                 if include_bi_values and node.data.bi_value is not None:
-                    node_dict["data"]["bi_value"] = tuple(sp.srepr(v) for v in node.data.bi_value)
+                    node_dict["data"]["bi_value"] = tuple(
+                        sp.srepr(v) for v in node.data.bi_value
+                    )
             elif isinstance(node.data, TerminalNodeData):
                 node_dict["data"] = {
                     "type": "terminal",
-                    "probability": sp.srepr(node.data.probability) if node.data.probability else None,
+                    "probability": sp.srepr(node.data.probability)
+                    if node.data.probability
+                    else None,
                     "payoffs": tuple(sp.srepr(p) for p in node.data.payoffs),
                 }
             else:
@@ -439,21 +529,36 @@ class GameTree(treelib.tree.Tree):  # type: ignore
             data_payload = None
             if node_data["data"]:
                 dtype = node_data["data"]["type"]
-                prob = sp.sympify(node_data["data"]["probability"]) if node_data["data"]["probability"] else None
+                prob = (
+                    sp.sympify(node_data["data"]["probability"])
+                    if node_data["data"]["probability"]
+                    else None
+                )
 
                 if dtype == "decision":
                     bi_val = None
-                    if "bi_value" in node_data["data"] and node_data["data"]["bi_value"]:
-                        bi_val = tuple(sp.sympify(v) for v in node_data["data"]["bi_value"])
+                    if (
+                        "bi_value" in node_data["data"]
+                        and node_data["data"]["bi_value"]
+                    ):
+                        bi_val = tuple(
+                            sp.sympify(v) for v in node_data["data"]["bi_value"]
+                        )
                     data_payload = DecisionNodeData(
                         player=node_data["data"]["player"],
+                        information_set=node_data["data"].get("information_set"),
                         probability=prob,
                         bi_value=bi_val,
                     )
                 elif dtype == "chance":
                     bi_val = None
-                    if "bi_value" in node_data["data"] and node_data["data"]["bi_value"]:
-                        bi_val = tuple(sp.sympify(v) for v in node_data["data"]["bi_value"])
+                    if (
+                        "bi_value" in node_data["data"]
+                        and node_data["data"]["bi_value"]
+                    ):
+                        bi_val = tuple(
+                            sp.sympify(v) for v in node_data["data"]["bi_value"]
+                        )
                     data_payload = ChanceNodeData(
                         probability=prob,
                         bi_value=bi_val,
@@ -461,7 +566,9 @@ class GameTree(treelib.tree.Tree):  # type: ignore
                 elif dtype == "terminal":
                     data_payload = TerminalNodeData(
                         probability=prob,
-                        payoffs=tuple(sp.sympify(p) for p in node_data["data"]["payoffs"]),
+                        payoffs=tuple(
+                            sp.sympify(p) for p in node_data["data"]["payoffs"]
+                        ),
                     )
 
             # Create the node
@@ -487,7 +594,7 @@ class GameTree(treelib.tree.Tree):  # type: ignore
         filter=None,
         key=None,
         reverse: bool = False,
-        line_type: str = 'ascii-ex',
+        line_type: str = "ascii-ex",
         data_property: Optional[str] = None,
         stdout: bool = True,
         sorting: bool = True,
@@ -553,7 +660,7 @@ class GameTree(treelib.tree.Tree):  # type: ignore
 
             # Backward induction result (if available)
             if show_bi_value:
-                if hasattr(node.data, 'bi_value') and node.data.bi_value is not None:
+                if hasattr(node.data, "bi_value") and node.data.bi_value is not None:
                     bi_str = ", ".join(str(v) for v in node.data.bi_value)
                     parts.append(f"BI=({bi_str})")
                 elif node.is_terminal:
