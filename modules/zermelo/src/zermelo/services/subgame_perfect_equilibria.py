@@ -17,9 +17,7 @@ from ..extensive.node_data import (
 )
 from ..extensive.equilibrium import EquilibriumPath, SubgamePerfectEquilibrium
 from ..extensive.strategy import Strategy
-
-if TYPE_CHECKING:
-    from ..extensive.game_tree import GameTree
+from ..extensive.game_tree import GameTree
 
 
 def backward_induction(
