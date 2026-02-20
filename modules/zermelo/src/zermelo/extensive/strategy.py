@@ -2,6 +2,7 @@
 # a named tuple or a dataclass, to improve readability and maintainability.
 Decision = tuple
 
+
 class Strategy:
     """
     Represents the strategy of a player in an extensive-form game. A strategy
@@ -27,4 +28,13 @@ class Strategy:
     def __repr__(self):
         # the string representation of a strategy be in the format of:
         # Strategy(info_set_1: action_1, info_set_2: action_2, ...)
-        return f"Strategy()"
+        items = ", ".join(f"{k}: {v}" for k, v in sorted(self.decisions.items()))
+        return f"Strategy({items})"
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Strategy):
+            return NotImplemented
+        return self.decisions == other.decisions
+
+    def __hash__(self) -> int:
+        return hash(frozenset(self.decisions.items()))

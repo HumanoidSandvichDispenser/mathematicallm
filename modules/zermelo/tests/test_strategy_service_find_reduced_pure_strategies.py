@@ -1,5 +1,9 @@
 """
-Tests for strategy service - finding full pure strategies.
+Tests for strategy_service.find_reduced_pure_strategies.
+
+Reduced pure strategies only specify actions for information sets that are
+actually reachable given the player's own earlier choices.  Info sets that
+are cut off by the player's own decisions are omitted.
 """
 
 import pytest
@@ -12,15 +16,161 @@ from zermelo.services.strategy_service import find_reduced_pure_strategies
 from zermelo.extensive.strategy import Strategy
 
 
-def test_escalation_game_returns_reduced_strategies(escalation_game_tree: GameTree):
-    """Test that escalation game returns reduced pure strategies."""
-    strategies = find_reduced_pure_strategies(escalation_game_tree, player=0)
+# ---------------------------------------------------------------------------
+# Escalation game (perfect information, 2 players)
+# ---------------------------------------------------------------------------
 
-    expected_p1_strategies = [
-        Strategy({"p1_root", "accept"}),
-        Strategy({"p1_root", "threaten"}, {"p1_again", "give_up"}),
-        Strategy({"p1_root", "threaten"}, {"p1_again", "war"}),
-    ]
 
-    for expected in expected_p1_strategies:
-        assert expected in strategies
+def test_escalation_game_p0_count(escalation_game):
+    """Player 0 has exactly 3 reduced strategies in the escalation game."""
+    strategies = find_reduced_pure_strategies(escalation_game, player=0)
+    assert len(strategies) == 3
+
+
+def test_escalation_game_p0_strategies(escalation_game):
+    """Player 0's reduced strategies are correct."""
+    strategies = find_reduced_pure_strategies(escalation_game, player=0)
+    expected = {
+        # Accept at root — p1_again is unreachable, so not specified
+        Strategy({"p1_root": "accept"}),
+        # Threaten, then Give Up
+        Strategy({"p1_root": "p2_node", "p1_again": "give_up"}),
+        # Threaten, then War
+        Strategy({"p1_root": "p2_node", "p1_again": "war"}),
+    }
+    assert strategies == expected
+
+
+def test_escalation_game_p1_count(escalation_game):
+    """Player 1 has exactly 2 reduced strategies in the escalation game."""
+    strategies = find_reduced_pure_strategies(escalation_game, player=1)
+    assert len(strategies) == 2
+
+
+def test_escalation_game_p1_strategies(escalation_game):
+    """Player 1's reduced strategies are correct."""
+    strategies = find_reduced_pure_strategies(escalation_game, player=1)
+    expected = {
+        Strategy({"p2_node": "concede"}),
+        Strategy({"p2_node": "p1_again"}),
+    }
+    assert strategies == expected
+
+
+def test_escalation_game_no_empty_strategy_p0(escalation_game):
+    """No spurious empty strategy is returned for player 0."""
+    strategies = find_reduced_pure_strategies(escalation_game, player=0)
+    assert Strategy({}) not in strategies
+
+
+def test_escalation_game_no_empty_strategy_p1(escalation_game):
+    """No spurious empty strategy is returned for player 1."""
+    strategies = find_reduced_pure_strategies(escalation_game, player=1)
+    assert Strategy({}) not in strategies
+
+
+def test_escalation_game_no_partial_strategy_p0(escalation_game):
+    """Partial strategy (p1_root only, without p1_again when threaten chosen)
+    must not appear."""
+    strategies = find_reduced_pure_strategies(escalation_game, player=0)
+    assert Strategy({"p1_root": "p2_node"}) not in strategies
+
+
+# ---------------------------------------------------------------------------
+# Simple perfect information game (single decision node)
+# ---------------------------------------------------------------------------
+
+
+def test_simple_tree_p0_reduced_equals_full(simple_perfect_info_tree):
+    """With a single decision node reduced == full strategies."""
+    strategies = find_reduced_pure_strategies(simple_perfect_info_tree, player=0)
+    expected = {
+        Strategy({"root": "left"}),
+        Strategy({"root": "right"}),
+    }
+    assert strategies == expected
+
+
+def test_simple_tree_p1_no_decisions(simple_perfect_info_tree):
+    """Player 1 has no decision nodes — returns one empty strategy."""
+    strategies = find_reduced_pure_strategies(simple_perfect_info_tree, player=1)
+    assert strategies == {Strategy({})}
+
+
+# ---------------------------------------------------------------------------
+# Perfect information game with two decisions per player
+# ---------------------------------------------------------------------------
+
+
+def test_two_decisions_p0_reduced(two_decisions_per_player_tree):
+    """Player 0 has 2 reduced strategies (one decision node, two actions)."""
+    strategies = find_reduced_pure_strategies(two_decisions_per_player_tree, player=0)
+    expected = {
+        Strategy({"root": "p1_l"}),
+        Strategy({"root": "p1_r"}),
+    }
+    assert strategies == expected
+
+
+def test_two_decisions_p1_reduced(two_decisions_per_player_tree):
+    """Player 1 has 2 reduced strategies (singleton info sets, but both
+    reachable regardless of P0's move, so all 4 combos remain and
+    deduplicate to 4)."""
+    strategies = find_reduced_pure_strategies(two_decisions_per_player_tree, player=1)
+    # P1 has two independent decision nodes (p1_l, p1_r), each always
+    # reachable (P0's choice doesn't cut either off for P1's perspective in
+    # reduced strategies — both nodes are distinct info sets with distinct
+    # actions).  So reduced == full: 2 x 2 = 4 strategies.
+    assert len(strategies) == 4
+
+
+# ---------------------------------------------------------------------------
+# Imperfect information game — same actions at both nodes
+# ---------------------------------------------------------------------------
+
+
+def test_imperfect_info_p0_reduced(imperfect_info_same_actions_tree):
+    """Player 0 has 2 reduced strategies (root: left or right)."""
+    strategies = find_reduced_pure_strategies(
+        imperfect_info_same_actions_tree, player=0
+    )
+    expected = {
+        Strategy({"root": "p1_l"}),
+        Strategy({"root": "p1_r"}),
+    }
+    assert strategies == expected
+
+
+def test_imperfect_info_p1_reduced(imperfect_info_same_actions_tree):
+    """Player 1 has 2 reduced strategies — one info set I1 with actions
+    up_l / up_r (first node's children)."""
+    strategies = find_reduced_pure_strategies(
+        imperfect_info_same_actions_tree, player=1
+    )
+    # Info set I1 is always reached (P0 always moves to a P1 node)
+    # The first node of I1 is p1_l with children up_l and down_l
+    expected = {
+        Strategy({"I1": "up_l"}),
+        Strategy({"I1": "down_l"}),
+    }
+    assert strategies == expected
+
+
+def test_imperfect_info_p1_reduced_count(imperfect_info_same_actions_tree):
+    """Player 1 has exactly 2 reduced strategies in the imperfect info game."""
+    strategies = find_reduced_pure_strategies(
+        imperfect_info_same_actions_tree, player=1
+    )
+    assert len(strategies) == 2
+
+
+# ---------------------------------------------------------------------------
+# Empty game
+# ---------------------------------------------------------------------------
+
+
+def test_empty_game_returns_empty_strategy():
+    """An empty game (no root) returns one empty strategy."""
+    tree = GameTree(num_players=2)
+    strategies = find_reduced_pure_strategies(tree, player=0)
+    assert strategies == {Strategy({})}
