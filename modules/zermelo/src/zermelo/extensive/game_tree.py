@@ -7,9 +7,9 @@ extensive-form games.
 """
 
 import treelib.tree  # type: ignore
-from typing import Optional, Sequence
+from typing import Optional
 import sympy as sp
-from sympy import Expr, sympify, simplify
+from sympy import Expr
 from .node_data import (
     NodeData,
     BIValue,
@@ -19,6 +19,10 @@ from .node_data import (
 )
 from .game_node import GameNode
 from .equilibrium import EquilibriumPath
+from ..services.subgame_perfect_equilibria import (
+    backward_induction,
+    get_all_equilibria,
+)
 
 
 class GameTree(treelib.tree.Tree):  # type: ignore
@@ -124,6 +128,14 @@ class GameTree(treelib.tree.Tree):  # type: ignore
                     return False
         return True
 
+    def get_node(self, nid: str) -> GameNode | None:
+        """
+        Get a node by its identifier, typed as GameNode.
+        """
+        if nid is None or not self.contains(nid):
+            return None
+        return self._nodes[nid]
+
     def all_nodes(self) -> list[GameNode]:
         """
         Get a list of all nodes in the tree, typed as GameNode.
@@ -136,86 +148,14 @@ class GameTree(treelib.tree.Tree):  # type: ignore
         """
         Compute backward induction solution from the given node.
 
-        For each node, computes the expected payoff vector by working backwards
-        from terminal nodes:
-        - Terminal nodes: return their payoff tuple
-        - Chance nodes: return probability-weighted sum of children
-        - Decision nodes: return the child that maximizes the current player's payoff
-
-        The bi_value field is mutated on all BIValue nodes during computation.
-
         Args:
             node_id: Starting node (defaults to root)
             mutate: If True, modifies tree in-place; if False, works on a copy
 
         Returns:
             Tuple of expressions representing each player's expected payoffs
-
-        Raises:
-            ValueError: If node_id not found in tree
         """
-        if node_id is None:
-            if self.root is None:
-                raise ValueError("Tree is empty (no root node)")
-            node_id = self.root
-
-        if not self.is_perfect_information():
-            raise NotImplementedError(
-                "This game has imperfect information (multiple nodes per information set). "
-                "Backward induction requires perfect information. "
-                "Use algorithms like Counterfactual Regret Minimization (CFR) for imperfect information games."
-            )
-
-        if not mutate:
-            # Work on a copy to avoid modifying the original tree
-            subtree_copy = self.subtree(node_id)
-            if subtree_copy.root is None:
-                raise ValueError(f"Node with id {node_id} not found in the tree.")
-            tree = GameTree(num_players=self.num_players, tree=subtree_copy, deep=True)
-            if tree.root is None:
-                raise ValueError(f"Subtree root is None")
-            return tree.backward_induction(node_id=tree.root, mutate=True)
-
-        # Get the node
-        node = self.get_node(node_id)
-        if node is None:
-            raise ValueError(f"Node with id {node_id} not found in the tree.")
-
-        # Base case: terminal node
-        if isinstance(node.data, TerminalNodeData):
-            return node.data.bi_value
-
-        # Recursive case: process all children first
-        children = self.children(node_id)
-        if not children:
-            raise ValueError(
-                f"Non-terminal node {node_id} has no children. "
-                f"Node type: {type(node.data).__name__}"
-            )
-
-        child_payoffs = [
-            self.backward_induction(child.identifier, mutate=True) for child in children
-        ]
-
-        # Chance node: expected value (probability-weighted sum)
-        if isinstance(node.data, ChanceNodeData):
-            result = self._compute_expected_value(children, child_payoffs)
-            node.data.bi_value = result
-            return result
-
-        # Decision node: maximize current player's payoff
-        if isinstance(node.data, DecisionNodeData):
-            result, optimal_indices = self._compute_optimal_choice(
-                node.data.player, children, child_payoffs
-            )
-            node.data.bi_value = result
-            # Store the IDs of all optimal children
-            node.data.optimal_children = [
-                children[idx].identifier for idx in optimal_indices
-            ]
-            return result
-
-        raise ValueError(f"Unknown node type at {node_id}: {type(node.data).__name__}")
+        return backward_induction(self, node_id=node_id, mutate=mutate)
 
     def get_all_equilibria(
         self, node_id: Optional[str] = None
@@ -224,211 +164,14 @@ class GameTree(treelib.tree.Tree):  # type: ignore
         Enumerate all subgame perfect Nash equilibria.
 
         This method must be called AFTER backward_induction() has been run with mutate=True.
-        It enumerates all equilibrium paths by recursively exploring all optimal choices
-        at decision nodes.
-
-        When a decision node has multiple optimal children (ties), this creates multiple
-        equilibrium paths - one for each combination of choices across all such nodes.
 
         Args:
             node_id: Starting node (defaults to root)
 
         Returns:
             List of EquilibriumPath objects, one per equilibrium
-
-        Raises:
-            ValueError: If backward_induction hasn't been run yet (bi_value not set)
-
-        Example:
-            tree.backward_induction(mutate=True)
-            equilibria = tree.get_all_equilibria()
-            for eq in equilibria:
-                print(f"Payoffs: {eq.payoffs}, Actions: {eq.actions}")
         """
-        if node_id is None:
-            if self.root is None:
-                raise ValueError("Tree is empty (no root node)")
-            node_id = self.root
-
-        node = self.get_node(node_id)
-        if node is None:
-            raise ValueError(f"Node with id {node_id} not found")
-
-        # Check that BI has been run
-        if hasattr(node.data, "bi_value"):
-            if node.data.bi_value is None:
-                raise ValueError(
-                    "backward_induction has not been run yet. "
-                    "Call tree.backward_induction(mutate=True) first."
-                )
-
-        # Helper function to recursively enumerate equilibria
-        def enumerate_paths(
-            current_node_id: str, current_actions: dict[str, str]
-        ) -> list[dict[str, str]]:
-            """
-            Recursively enumerate all equilibrium action profiles from this node down.
-
-            Returns list of action dictionaries, each mapping decision_node_id -> child_id
-            """
-            current_node = self.get_node(current_node_id)
-
-            assert isinstance(current_node, GameNode)
-
-            # Base case: terminal node
-            if current_node.is_terminal:
-                return [current_actions.copy()]
-
-            # Chance node: follow all children (nature doesn't choose strategically)
-            if current_node.is_chance:
-                all_paths = []
-                for child in self.children(current_node_id):
-                    child_paths = enumerate_paths(child.identifier, current_actions)
-                    all_paths.extend(child_paths)
-                return all_paths if all_paths else [current_actions.copy()]
-
-            # Decision node: follow all optimal children
-            if current_node.is_decision:
-                if not current_node.data.optimal_children:
-                    raise ValueError(
-                        f"Decision node {current_node_id} has no optimal children. "
-                        "Ensure backward_induction was run with mutate=True."
-                    )
-
-                all_paths = []
-                for optimal_child_id in current_node.data.optimal_children:
-                    # Record this action
-                    new_actions = current_actions.copy()
-                    new_actions[current_node_id] = optimal_child_id
-
-                    # Recurse into this child
-                    child_paths = enumerate_paths(optimal_child_id, new_actions)
-                    all_paths.extend(child_paths)
-
-                return all_paths
-
-            # Unknown node type
-            raise ValueError(f"Unknown node type at {current_node_id}")
-
-        # Enumerate all action profiles
-        action_profiles = enumerate_paths(node_id, {})  # type: ignore
-
-        # Convert to EquilibriumPath objects
-        root_node = self.get_node(node_id)
-        assert isinstance(root_node, GameNode)
-        payoffs = (
-            root_node.data.bi_value
-            if hasattr(root_node.data, "bi_value")
-            else root_node.data.payoffs
-        )
-
-        equilibria = [
-            EquilibriumPath(payoffs=payoffs, actions=actions)
-            for actions in action_profiles
-        ]
-
-        return equilibria
-
-    def _compute_expected_value(
-        self,
-        children: Sequence,  # type: ignore
-        child_payoffs: list[tuple[Expr, ...]],
-    ) -> tuple[Expr, ...]:
-        """
-        Compute expected value across chance node children.
-
-        Each child should have a probability set (via child.data.probability).
-        Probabilities do not need to sum to 1.
-
-        Args:
-            children: List of child nodes (must have probability set)
-            child_payoffs: Corresponding payoff tuples for each child
-
-        Returns:
-            Tuple of expected payoffs, one for each player
-        """
-        if not child_payoffs:
-            raise ValueError("Cannot compute expected value with no children")
-
-        # Determine number of players from first child
-        num_players = len(child_payoffs[0])
-
-        # Compute weighted sum for each player
-        expected = []
-        for player_idx in range(num_players):
-            weighted_sum = sp.Integer(0)
-            for child, payoffs in zip(children, child_payoffs):
-                prob = (
-                    child.data.probability
-                    if child.data.probability is not None
-                    else sp.Integer(1)
-                )
-                player_payoff = payoffs[player_idx]
-                weighted_sum += prob * player_payoff
-            expected.append(simplify(weighted_sum))
-
-        return tuple(expected)
-
-    def _compute_optimal_choice(
-        self,
-        player: int,
-        children: Sequence,  # type: ignore
-        child_payoffs: list[tuple[Expr, ...]],
-    ) -> tuple[tuple[Expr, ...], list[int]]:
-        """
-        Select ALL children that maximize the decision-maker's payoff.
-
-        When multiple children yield the same optimal payoff (ties), all are returned.
-        This allows detecting multiple perfect Nash equilibria.
-
-        Args:
-            player: Zero-indexed player number who owns this decision node
-            children: List of child nodes
-            child_payoffs: Corresponding payoff tuples for each child
-
-        Returns:
-            Tuple of (optimal_payoff, list_of_optimal_child_indices)
-
-        Note:
-            For symbolic payoffs, this uses sympy's simplify and considers payoffs
-            equal if their difference simplifies to zero. For indeterminate comparisons,
-            assumes they could be equal.
-        """
-        if not child_payoffs:
-            raise ValueError("No children to choose from")
-
-        best_value = child_payoffs[0][player]
-        best_indices = [0]
-
-        for idx, payoffs in enumerate(child_payoffs[1:], start=1):
-            current_value = payoffs[player]
-
-            # Try to determine relationship between current and best
-            diff = simplify(current_value - best_value)
-
-            # Check if current > best
-            is_better = False
-            if diff.is_number:
-                is_better = diff > 0
-            elif diff.is_positive:
-                is_better = True
-
-            # Check if current == best (tie)
-            is_equal = False
-            if diff.is_number:
-                is_equal = diff == 0
-            elif diff.is_zero:
-                is_equal = True
-
-            if is_better:
-                # Found strictly better option - reset best
-                best_value = current_value
-                best_indices = [idx]
-            elif is_equal:
-                # Found a tie - add to list
-                best_indices.append(idx)
-
-        return (child_payoffs[best_indices[0]], best_indices)
+        return get_all_equilibria(self, node_id=node_id)
 
     def to_dict(self, include_bi_values: bool = True) -> dict:
         """

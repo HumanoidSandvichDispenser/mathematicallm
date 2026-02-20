@@ -12,7 +12,7 @@ Main components:
 
 Example:
     from zermelo.extensive import GameTree, DecisionNodeData, TerminalNodeData
-    
+
     # Build a simple game
     tree = GameTree()
     tree.create_node("Root", "root", data=DecisionNodeData(player=0))
@@ -24,7 +24,7 @@ Example:
         "Right", "right", parent="root",
         data=TerminalNodeData(payoffs=(0, 1))
     )
-    
+
     # Solve
     tree.backward_induction(mutate=True)
     result = tree.get_node("root").data.bi_value
@@ -33,7 +33,13 @@ Example:
 
 from .game_tree import GameTree
 from .game_node import GameNode
-from .node_data import NodeData, BIValue, DecisionNodeData, ChanceNodeData, TerminalNodeData
+from .node_data import (
+    NodeData,
+    BIValue,
+    DecisionNodeData,
+    ChanceNodeData,
+    TerminalNodeData,
+)
 from .equilibrium import EquilibriumPath
 
 __all__ = [
