@@ -26,3 +26,11 @@ class Strategy(Mapping):
 
     def __hash__(self) -> int:
         return hash(frozenset(self._decisions.items()))
+
+    def concat(self, strategy: "Strategy") -> "Strategy":
+        """
+        Returns a new strategy that combines the decisions of this strategy and
+        the given strategy.
+        """
+        combined_decisions = {**self._decisions, **strategy._decisions}
+        return Strategy(combined_decisions)

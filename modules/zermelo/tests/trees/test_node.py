@@ -5,7 +5,6 @@ Tests for node.py - tree node classes.
 import pytest
 import sympy
 from sympy import S
-from sympy import Matrix
 from zermelo.trees.node import (
     Node,
     DecisionNode,
@@ -20,7 +19,7 @@ class NodeForTests(Node):
     def __init__(self, label: str):
         super().__init__(label)
 
-    def apply_strategy(self, strategies: list[Strategy]) -> Matrix:
+    def apply_strategy(self, strategies: list[Strategy]) -> tuple:
         raise NotImplementedError("NodeForTests is for testing only")
 
 
@@ -176,8 +175,8 @@ class TestDecisionNode:
 
         strategies = [Strategy({"root": "left"})]
         payoff = root.apply_strategy(strategies)
-        assert isinstance(payoff, Matrix)
-        assert payoff == Matrix([[S(1)], [S(2)]])
+        assert isinstance(payoff, tuple)
+        assert payoff == (S(1), S(2))
 
     def test_apply_strategy_other_action(self):
         root = DecisionNode("root", player=0)
@@ -188,8 +187,8 @@ class TestDecisionNode:
 
         strategies = [Strategy({"root": "right"})]
         payoff = root.apply_strategy(strategies)
-        assert isinstance(payoff, Matrix)
-        assert payoff == Matrix([[S(3)], [S(4)]])
+        assert isinstance(payoff, tuple)
+        assert payoff == (S(3), S(4))
 
     def test_apply_strategy_missing_info_set(self):
         root = DecisionNode("root", player=0)
@@ -262,24 +261,23 @@ class TestTerminalNode:
     def test_init(self):
         node = TerminalNode("end", (S(1), S(2), S(3)))
         assert node.label == "end"
-        assert isinstance(node.payoffs, Matrix)
+        assert isinstance(node.payoffs, tuple)
 
     def test_init_with_sympy_expressions(self):
         payoffs = (sympy.Rational(1, 2), sympy.Symbol("x"))
         node = TerminalNode("end", payoffs)
-        assert isinstance(node.payoffs, Matrix)
+        assert isinstance(node.payoffs, tuple)
 
-    def test_init_with_vector(self):
-        vec = Matrix([S(1), S(2)])
-        node = TerminalNode("end", vec)
-        assert isinstance(node.payoffs, Matrix)
+    def test_init_with_matrix(self):
+        node = TerminalNode("end", (S(1), S(2)))
+        assert isinstance(node.payoffs, tuple)
 
     def test_apply_strategy(self):
         node = TerminalNode("end", (S(1), S(2), S(3)))
         strategies = [Strategy({}), Strategy({})]
         payoff = node.apply_strategy(strategies)
-        assert isinstance(payoff, Matrix)
-        assert payoff == Matrix([S(1), S(2), S(3)])
+        assert isinstance(payoff, tuple)
+        assert payoff == (S(1), S(2), S(3))
 
 
 class TestInformationSet:

@@ -2,7 +2,6 @@ from typing import Generator
 from abc import ABC, abstractmethod
 from zermelo.trees.strategy import Strategy
 from sympy import Expr, Rational
-from sympy import Matrix
 
 
 class Node(ABC):
@@ -33,7 +32,7 @@ class Node(ABC):
             yield from child.traverse_preorder()
 
     @abstractmethod
-    def apply_strategy(self, strategies: list[Strategy]) -> Matrix:
+    def apply_strategy(self, strategies: list[Strategy]) -> tuple[Expr, ...]:
         """
         Applies the given strategies from each player to the game tree,
         returning a payoff vector for the resulting game. If the game is not
@@ -46,9 +45,7 @@ class Node(ABC):
 
 class DecisionNode(Node):
     def __init__(
-        self, label: str,
-        player: int,
-        information_set: "InformationSet | None" = None
+        self, label: str, player: int, information_set: "InformationSet | None" = None
     ):
         super().__init__(label)
         self.player: int = player
@@ -59,7 +56,7 @@ class DecisionNode(Node):
     def actions(self):
         return list(self.children.keys())
 
-    def apply_strategy(self, strategies: list[Strategy]) -> Matrix:
+    def apply_strategy(self, strategies: list[Strategy]) -> tuple[Expr, ...]:
         strategy = strategies[self.player]
 
         if self.information_set.label not in strategy:
@@ -86,16 +83,22 @@ class ChanceNode(Node):
             raise ValueError(f"Action '{action}' not found among children.")
         self.probability_map[action] = probability
 
-    def add_child(self, child: "Node", action: str, probability: Expr = Rational(0)):
+    def add_child(self, child: "Node", action: str, probability: Expr | None = None):
         super().add_child(child, action)
-        self.probability_map[action] = probability
+        if action not in self.probability_map:
+            self.probability_map[action] = (
+                probability if probability is not None else Rational(0)
+            )
 
     def rename_action(self, old_action: str, new_action: str):
         super().rename_action(old_action, new_action)
         self.probability_map[new_action] = self.probability_map.pop(old_action)
 
-    def apply_strategy(self, strategies: list[Strategy]) -> Matrix:
-        total_payoff: Matrix = Matrix([0] * len(strategies))
+    def apply_strategy(self, strategies: list[Strategy]) -> tuple[Expr, ...]:
+        total_payoff: tuple[Expr, ...] = tuple(
+            Rational(0) for _ in range(100)
+        )  # placeholder, will be replaced
+        first = True
         for action, child in self.children.items():
             probability = self.probability_map.get(action)
             if probability is None:
@@ -103,23 +106,28 @@ class ChanceNode(Node):
                     f"Probability for action '{action}' not specified in chance node '{self.label}'."
                 )
             child_payoff = child.apply_strategy(strategies)
-            total_payoff += probability * child_payoff
-            assert isinstance(total_payoff, Matrix), (
-                "Expected total_payoff to be a Matrix"
-            )
+            if first:
+                total_payoff = tuple(
+                    probability * child_payoff[i] for i in range(len(child_payoff))
+                )
+                first = False
+            else:
+                total_payoff = tuple(
+                    total_payoff[i] + probability * child_payoff[i]
+                    for i in range(len(child_payoff))
+                )
         return total_payoff
 
 
 class TerminalNode(Node):
-    def __init__(self, label: str, payoffs: Matrix | tuple[Expr | int, ...]):
+    def __init__(self, label: str, payoffs: tuple[Expr, ...]):
         super().__init__(label)
-        if isinstance(payoffs, tuple):
-            payoffs = Matrix(payoffs)
-        else:
-            payoffs = Matrix(payoffs)
-        self.payoffs: Matrix = payoffs
+        self.payoffs: tuple[Expr, ...] = payoffs
 
-    def apply_strategy(self, strategies: list[Strategy]) -> Matrix:
+    def add_child(self, **_):
+        raise ValueError("Terminal nodes cannot have children.")
+
+    def apply_strategy(self, strategies: list[Strategy]) -> tuple[Expr, ...]:
         return self.payoffs
 
 
