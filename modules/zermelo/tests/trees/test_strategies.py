@@ -318,6 +318,56 @@ class TestFindReducedPureStrategies:
         result = find_reduced_pure_strategies(root, player=0)
         assert result == [Strategy({})]
 
+    def test_player_multiple_info_sets_different_branches(self):
+        """Player has multiple info sets in different branches - strategies should be combined.
+
+        This is the bug case: when player 1 has info sets 'o' and 'm' in different
+        branches, the reduced strategies need to include BOTH info sets in each strategy.
+        """
+        root = DecisionNode("root", player=0)
+        o_node = DecisionNode("o", player=1)
+        m_node = DecisionNode("m", player=1)
+        o_o = TerminalNode("oo", (S(2), S(1)))
+        o_m = TerminalNode("om", (S(0), S(0)))
+        m_o = TerminalNode("mo", (S(0), S(0)))
+        m_m = TerminalNode("mm", (S(1), S(2)))
+        o_node.add_child(o_o, "O")
+        o_node.add_child(o_m, "M")
+        m_node.add_child(m_o, "O")
+        m_node.add_child(m_m, "M")
+        root.add_child(o_node, "O")
+        root.add_child(m_node, "M")
+
+        p1_reduced = find_reduced_pure_strategies(root, player=1)
+
+        assert len(p1_reduced) == 4
+        for s in p1_reduced:
+            assert "o" in s
+            assert "m" in s
+
+    def test_payoff_array_with_reduced_strategies_multiple_info_sets(self):
+        """Create payoff array with reduced strategies that have multiple info sets."""
+        root = DecisionNode("root", player=0)
+        o_node = DecisionNode("o", player=1)
+        m_node = DecisionNode("m", player=1)
+        o_o = TerminalNode("oo", (S(2), S(1)))
+        o_m = TerminalNode("om", (S(0), S(0)))
+        m_o = TerminalNode("mo", (S(0), S(0)))
+        m_m = TerminalNode("mm", (S(1), S(2)))
+        o_node.add_child(o_o, "O")
+        o_node.add_child(o_m, "M")
+        m_node.add_child(m_o, "O")
+        m_node.add_child(m_m, "M")
+        root.add_child(o_node, "O")
+        root.add_child(m_node, "M")
+
+        p0_reduced = find_reduced_pure_strategies(root, player=0)
+        p1_reduced = find_reduced_pure_strategies(root, player=1)
+
+        array = create_payoff_array(root, [p0_reduced, p1_reduced])
+
+        assert array.shape == (2, 4, 2)
+
 
 class TestCreatePayoffArray:
     def test_two_player_game(self):

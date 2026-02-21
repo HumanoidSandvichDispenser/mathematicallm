@@ -44,7 +44,16 @@ def find_full_pure_strategies(root: Node, player: int) -> list[Strategy]:
         for s in combo:
             combined.update(s)
         results.append(Strategy(combined))
-    return results
+
+    seen = set()
+    deduplicated = []
+    for s in results:
+        key = tuple(sorted(s.items()))
+        if key not in seen:
+            seen.add(key)
+            deduplicated.append(s)
+
+    return deduplicated
 
 
 def find_reduced_pure_strategies(root: Node, player: int) -> list[Strategy]:
@@ -71,19 +80,21 @@ def find_reduced_pure_strategies(root: Node, player: int) -> list[Strategy]:
                 results.append(Strategy(combined))
         return results
 
-    results = []
-    seen = set()
+    child_strategies_list: list[list[Strategy]] = []
     for child in root.children.values():
-        for s in find_reduced_pure_strategies(child, player):
-            if len(s) == 0:
-                continue
-            key = tuple(sorted(s.items()))
-            if key not in seen:
-                results.append(s)
-                seen.add(key)
+        child_strategies = find_reduced_pure_strategies(child, player)
+        if child_strategies:
+            child_strategies_list.append(child_strategies)
 
-    if not results:
+    if not child_strategies_list:
         return [Strategy({})]
+
+    results = []
+    for strategy_combination in product(*child_strategies_list):
+        combined = {}
+        for s in strategy_combination:
+            combined.update(s)
+        results.append(Strategy(combined))
 
     return results
 
