@@ -10,6 +10,14 @@ class Node(ABC):
         self.parent: "Node | None" = None
         self.children: dict[str, "Node"] = {}
 
+    @property
+    def is_perfect_information(self) -> bool:
+        """
+        Determine if the game tree rooted at this node is a perfect information
+        game.
+        """
+        return all(c.is_perfect_information for c in self.children.values())
+
     def get_players(self) -> set[str]:
         players = set()
         for node in self.traverse_preorder():
@@ -80,6 +88,10 @@ class DecisionNode(Node):
     @property
     def actions(self):
         return list(self.children.keys())
+
+    @property
+    def is_perfect_information(self) -> bool:
+        return len(self.information_set.nodes) == 1 and super().is_perfect_information
 
     def _visualize_label(self) -> str:
         return f"{self.label} [P{self.player} @{self.information_set.label}]"
@@ -175,6 +187,9 @@ class InformationSet:
                     "All nodes in an information set must have the same actions."
                 )
         self.nodes.add(node)
+
+    def remove_node(self, node: DecisionNode):
+        self.nodes.remove(node)
 
     @property
     def actions(self):

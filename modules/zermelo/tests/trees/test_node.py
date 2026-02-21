@@ -208,6 +208,55 @@ class TestDecisionNode:
         with pytest.raises(ValueError, match="is not available"):
             root.apply_strategy(strategies)
 
+    def test_is_perfect_information_single_node_info_set(self):
+        node = DecisionNode("root", player="p0")
+        t1 = TerminalNode("t1", (S(1),))
+        t2 = TerminalNode("t2", (S(2),))
+        node.add_child(t1, "left")
+        node.add_child(t2, "right")
+
+        assert node.is_perfect_information is True
+
+    def test_is_perfect_information_multi_node_info_set(self):
+        info_set = InformationSet("shared", player="p0")
+        node1 = DecisionNode("n1", player="p0", information_set=info_set)
+        node2 = DecisionNode("n2", player="p0", information_set=info_set)
+
+        t1 = TerminalNode("t1", (S(1),))
+        t2 = TerminalNode("t2", (S(2),))
+        node1.add_child(t1, "left")
+        node1.add_child(t2, "right")
+        node2.add_child(t1, "left")
+        node2.add_child(t2, "right")
+
+        assert node1.is_perfect_information is False
+        assert node2.is_perfect_information is False
+
+    def test_is_perfect_information_tree_perfect_info(self):
+        root = DecisionNode("root", player="p0")
+        left = DecisionNode("left", player="p1")
+        right = DecisionNode("right", player="p1")
+        root.add_child(left, "left")
+        root.add_child(right, "right")
+        left.add_child(TerminalNode("t1", (S(1),)), "up")
+        left.add_child(TerminalNode("t2", (S(2),)), "down")
+        right.add_child(TerminalNode("t3", (S(3),)), "up")
+        right.add_child(TerminalNode("t4", (S(4),)), "down")
+
+        assert root.is_perfect_information is True
+
+    def test_is_perfect_information_recursive(self):
+        info_set = InformationSet("shared", player="p1")
+        root = DecisionNode("root", player="p0")
+        left = DecisionNode("left", player="p1", information_set=info_set)
+        right = DecisionNode("right", player="p1", information_set=info_set)
+        root.add_child(left, "left")
+        root.add_child(right, "right")
+        left.add_child(TerminalNode("t1", (S(1),)), "up")
+        right.add_child(TerminalNode("t2", (S(2),)), "up")
+
+        assert root.is_perfect_information is False
+
 
 class TestChanceNode:
     def test_init(self):
@@ -278,6 +327,10 @@ class TestTerminalNode:
         payoff = node.apply_strategy(strategies)
         assert isinstance(payoff, tuple)
         assert payoff == (S(1), S(2), S(3))
+
+    def test_is_perfect_information_true(self):
+        node = TerminalNode("end", (S(1), S(2)))
+        assert node.is_perfect_information is True
 
 
 class TestInformationSet:

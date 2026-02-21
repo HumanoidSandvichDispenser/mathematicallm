@@ -19,6 +19,11 @@ def find_full_pure_strategies(root: Node, player: str) -> list[Strategy]:
     specified `player`. A full pure strategy is a strategy that specifies an
     action for every decision node in the game tree. The returned strategies
     are represented as dictionaries mapping information set labels to actions.
+
+    This should generally be avoided and should only be used for educational
+    purposes or for very small game trees with sparse branching, as the number
+    of full pure strategies grows at a rate d^n where d is the maximum
+    branching factor, and n is the number of decision nodes in the tree.
     """
     if isinstance(root, TerminalNode):
         return [Strategy({})]

@@ -64,8 +64,11 @@ def find_pure_nash_equilibria(
     return equilibria
 
 
-def find_pure_subgame_perfect_equilibria(root: "Node") -> list[Strategy]:
+def backwards_induction(root: "Node") -> list[Strategy]:
     """
-    Finds all pure subgame perfect equilibria using backward induction.
+    Performs backwards induction on a game tree to find the subgame perfect
+    equilibrium strategy profile. This function assumes that all players are
+    rational and will choose their best response at each decision node, given
+    the strategies of the other players.
     """
     raise NotImplementedError()
