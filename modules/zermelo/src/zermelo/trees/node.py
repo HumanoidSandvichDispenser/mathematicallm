@@ -10,6 +10,13 @@ class Node(ABC):
         self.parent: "Node | None" = None
         self.children: dict[str, "Node"] = {}
 
+    def get_players(self) -> set[int]:
+        players = set()
+        for node in self.traverse_preorder():
+            if isinstance(node, DecisionNode):
+                players.add(node.player)
+        return players
+
     def add_child(self, child: "Node", action: str):
         child.parent = self
         self.children[action] = child
@@ -32,23 +39,26 @@ class Node(ABC):
             yield from child.traverse_preorder()
 
     @abstractmethod
-    def apply_strategy(self, strategies: list[Strategy]) -> tuple[Expr, ...]:
+    def apply_strategy(self, strategies: dict[str, Strategy]) -> tuple[Expr, ...]:
         """
         Applies the given strategies from each player to the game tree,
         returning a payoff vector for the resulting game. If the game is not
         fully specified by the strategies, raises a ValueError. If the game
         contains chance nodes, the resulting payoff vector is a weighted average
         of the payoffs at the terminal nodes.
+
+        Args:
+            strategies: A dict mapping player (str) to their Strategy
         """
         pass
 
 
 class DecisionNode(Node):
     def __init__(
-        self, label: str, player: int, information_set: "InformationSet | None" = None
+        self, label: str, player: str, information_set: "InformationSet | None" = None
     ):
         super().__init__(label)
-        self.player: int = player
+        self.player: str = player
         self.information_set = information_set or InformationSet(label, player)
         self.information_set.add_node(self)
 
@@ -56,7 +66,7 @@ class DecisionNode(Node):
     def actions(self):
         return list(self.children.keys())
 
-    def apply_strategy(self, strategies: list[Strategy]) -> tuple[Expr, ...]:
+    def apply_strategy(self, strategies: dict[str, Strategy]) -> tuple[Expr, ...]:
         strategy = strategies[self.player]
 
         if self.information_set.label not in strategy:
@@ -94,7 +104,7 @@ class ChanceNode(Node):
         super().rename_action(old_action, new_action)
         self.probability_map[new_action] = self.probability_map.pop(old_action)
 
-    def apply_strategy(self, strategies: list[Strategy]) -> tuple[Expr, ...]:
+    def apply_strategy(self, strategies: dict[str, Strategy]) -> tuple[Expr, ...]:
         total_payoff: tuple[Expr, ...] = tuple(
             Rational(0) for _ in range(100)
         )  # placeholder, will be replaced
@@ -127,13 +137,13 @@ class TerminalNode(Node):
     def add_child(self, **_):
         raise ValueError("Terminal nodes cannot have children.")
 
-    def apply_strategy(self, strategies: list[Strategy]) -> tuple[Expr, ...]:
+    def apply_strategy(self, strategies: dict[str, Strategy]) -> tuple[Expr, ...]:
         return self.payoffs
 
 
 class InformationSet:
-    def __init__(self, label: str, player: int, nodes: set[DecisionNode] | None = None):
-        self.player: int = player
+    def __init__(self, label: str, player: str, nodes: set[DecisionNode] | None = None):
+        self.player: str = player
         self.label: str = label
         self.nodes: set[DecisionNode] = nodes or set()
 

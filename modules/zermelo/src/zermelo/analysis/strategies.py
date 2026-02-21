@@ -13,7 +13,7 @@ from zermelo.trees.node import (
 from zermelo.trees.strategy import Strategy
 
 
-def find_full_pure_strategies(root: Node, player: int) -> list[Strategy]:
+def find_full_pure_strategies(root: Node, player: str) -> list[Strategy]:
     """
     Finds all full pure strategies for the game tree rooted at `root` for the
     specified `player`. A full pure strategy is a strategy that specifies an
@@ -56,7 +56,7 @@ def find_full_pure_strategies(root: Node, player: int) -> list[Strategy]:
     return deduplicated
 
 
-def find_reduced_pure_strategies(root: Node, player: int) -> list[Strategy]:
+def find_reduced_pure_strategies(root: Node, player: str) -> list[Strategy]:
     """
     Finds all reduced pure strategies for the game tree rooted at `root` for
     the specified `player`. A reduced pure strategy is a strategy that
@@ -146,25 +146,43 @@ def find_reduced_pure_strategies(root: Node, player: int) -> list[Strategy]:
     return deduplicated
 
 
-def create_payoff_array(root: Node, profiles: list[tuple[Strategy]]) -> NDimArray:
+def create_payoff_array(
+    root: Node, profiles: dict[str, list[Strategy]]
+) -> tuple[NDimArray, int]:
     """
     Creates a payoff array for the game tree rooted at `root` based on
     the provided strategy profiles. The payoff array has one dimension for each
     player, and the size of each dimension corresponds to the number of
     strategies available to that player in the provided profiles. Each entry
     is a tuple of payoffs for each player under that strategy profile.
-    """
-    num_profiles = len(profiles)
-    strategy_counts = [len(p) for p in profiles]
 
-    sample_payoff = root.apply_strategy([p[0] for p in profiles])
-    actual_players = len(sample_payoff)
-    shape = tuple(strategy_counts) + (actual_players,)
+    Args:
+        root: The root node of the game tree
+        profiles: A dict mapping player (str) to their list of strategies
+
+    Returns:
+        A tuple containing:
+            - An NDimArray of payoffs with shape (n_p0, n_p1, ..., n_pk, k)
+              for k players, where n_pi is the number of strategies for player
+              i. The last dimension corresponds to the payoff scalar for each
+              player; thus if you were to index the array (n_p0, n_p1, ...,
+              n_pk), you would get the payoff vector of dimensions k for that
+              strategy profile.
+            - A list of player names corresponding to the order of dimensions in
+              the payoff array.
+    """
+    players = list(profiles.keys())
+    num_profiles = len(profiles)
+    strategy_counts = [len(profiles[p]) for p in players]
+
+    shape = tuple(strategy_counts) + (num_profiles,)
 
     entries = []
     for index in product(*[range(c) for c in strategy_counts]):
-        strategies = [profiles[i][index[i]] for i in range(num_profiles)]
+        strategies = {
+            players[i]: profiles[players[i]][index[i]] for i in range(num_profiles)
+        }
         payoff = root.apply_strategy(strategies)
         entries.append(payoff)
 
-    return NDimArray(entries, shape)
+    return NDimArray(entries, shape), players

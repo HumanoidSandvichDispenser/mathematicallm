@@ -14,8 +14,12 @@ def find_pure_nash_equilibria(
 
     Args:
         profiles: A list of strategy lists, one per player.
-        array: An NDimArray of payoffs with shape (n_p0, n_p1, ..., n_pk, num_players).
-            Each entry is a tuple of payoffs for each player.
+        array: An NDimArray of payoffs with shape (n_p0, n_p1, ..., n_pk, k)
+            for k players, where n_pi is the number of strategies for player i.
+            The last dimension corresponds to the payoff scalar for each
+            player; thus if you were to index the array (n_p0, n_p1, ...,
+            n_pk), you would get the payoff vector of dimensions k for that
+            strategy profile.
 
     Returns:
         A list of pure Nash equilibria, where each equilibrium is a tuple of
