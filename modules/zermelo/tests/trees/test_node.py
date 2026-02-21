@@ -22,6 +22,14 @@ class NodeForTests(Node):
     def apply_strategy(self, strategies: list[Strategy]) -> tuple:
         raise NotImplementedError("NodeForTests is for testing only")
 
+    def _deep_copy(
+        self, info_set_map: dict[InformationSet, InformationSet]
+    ) -> "NodeForTests":
+        new_node = NodeForTests(self.label)
+        for action, child in self.children.items():
+            new_node.children[action] = child._deep_copy(info_set_map)
+        return new_node
+
 
 class TestNodeTests:
     def test_init(self):
@@ -386,3 +394,143 @@ class TestInformationSet:
         info_set.add_node(node2)
 
         assert info_set.actions == ["a"]
+
+
+class TestDeepCopy:
+    def test_copy_decision_node(self):
+        root = DecisionNode("root", player="p0")
+        root.add_child(TerminalNode("t1", (S(1),)), "left")
+        root.add_child(TerminalNode("t2", (S(2),)), "right")
+
+        copied = root.copy()
+
+        assert copied is not root
+        assert copied.label == "root"
+        assert copied.player == "p0"
+        assert set(copied.children.keys()) == {"left", "right"}
+
+    def test_copy_decision_node_different_objects(self):
+        root = DecisionNode("root", player="p0")
+        root.add_child(TerminalNode("t1", (S(1),)), "left")
+
+        copied = root.copy()
+
+        assert root is not copied
+        assert root.children["left"] is not copied.children["left"]
+
+    def test_copy_shared_info_set(self):
+        info_set = InformationSet("shared", player="p1")
+        left = DecisionNode("left", player="p1", information_set=info_set)
+        right = DecisionNode("right", player="p1", information_set=info_set)
+
+        root = DecisionNode("root", player="p0")
+        root.add_child(left, "left")
+        root.add_child(right, "right")
+
+        left.add_child(TerminalNode("t1", (S(1),)), "a")
+        right.add_child(TerminalNode("t2", (S(2),)), "a")
+
+        copied = root.copy()
+
+        copied_left = copied.children["left"]
+        copied_right = copied.children["right"]
+
+        assert isinstance(copied_left, DecisionNode)
+        assert isinstance(copied_right, DecisionNode)
+
+        assert copied_left.information_set is copied_right.information_set
+        assert copied_left.information_set.label == "shared"
+        assert left.information_set is not copied_left.information_set
+
+    def test_copy_chance_node(self):
+        root = DecisionNode("root", player="p0")
+        chance = ChanceNode("chance", {"left": S(1) / 2, "right": S(1) / 2})
+        root.add_child(chance, "roll")
+        chance.add_child(TerminalNode("t1", (S(1),)), "left")
+        chance.add_child(TerminalNode("t2", (S(2),)), "right")
+
+        copied = root.copy()
+
+        copied_chance = copied.children["roll"]
+        assert isinstance(copied_chance, ChanceNode)
+        assert copied_chance is not chance
+        assert copied_chance.label == "chance"
+        assert copied_chance.probability_map == {"left": S(1) / 2, "right": S(1) / 2}
+        assert set(copied_chance.children.keys()) == {"left", "right"}
+
+    def test_copy_chance_node_children_different(self):
+        root = DecisionNode("root", player="p0")
+        chance = ChanceNode("chance", {"a": S(1)})
+        root.add_child(chance, "x")
+        chance.add_child(TerminalNode("t1", (S(1),)), "a")
+
+        copied = root.copy()
+
+        assert chance.children["a"] is not copied.children["x"].children["a"]
+
+    def test_copy_terminal_node(self):
+        node = TerminalNode("end", (S(1), S(2), S(3)))
+
+        copied = node.copy()
+
+        assert copied is not node
+        assert copied.label == "end"
+        assert copied.payoffs == (S(1), S(2), S(3))
+
+    def test_copy_full_tree(self):
+        root = DecisionNode("root", player="p0")
+        left = DecisionNode("left", player="p1")
+        right = DecisionNode("right", player="p1")
+        root.add_child(left, "left")
+        root.add_child(right, "right")
+
+        left.add_child(TerminalNode("t1", (S(1), S(2))), "up")
+        left.add_child(TerminalNode("t2", (S(3), S(4))), "down")
+        right.add_child(TerminalNode("t3", (S(5), S(6))), "up")
+        right.add_child(TerminalNode("t4", (S(7), S(8))), "down")
+
+        copied = root.copy()
+
+        assert copied.label == "root"
+        assert copied.player == "p0"
+        assert set(copied.children.keys()) == {"left", "right"}
+
+        assert copied.children["left"].label == "left"
+        assert copied.children["right"].label == "right"
+
+        assert copied.children["left"].children["up"].payoffs == (S(1), S(2))
+        assert copied.children["left"].children["down"].payoffs == (S(3), S(4))
+        assert copied.children["right"].children["up"].payoffs == (S(5), S(6))
+        assert copied.children["right"].children["down"].payoffs == (S(7), S(8))
+
+    def test_copy_preserves_structure_not_references(self):
+        root = DecisionNode("root", player="p0")
+        t1 = TerminalNode("t1", (S(1),))
+        t2 = TerminalNode("t2", (S(2),))
+        root.add_child(t1, "left")
+        root.add_child(t2, "right")
+
+        copied = root.copy()
+
+        assert root.children["left"] is not copied.children["left"]
+        assert root.children["right"] is not copied.children["right"]
+        assert t1 is not copied.children["left"]
+        assert t2 is not copied.children["right"]
+
+    def test_copy_partial_tree_from_shared_info_set(self):
+        info_set = InformationSet("shared", player="p1")
+        node1 = DecisionNode("node1", player="p1", information_set=info_set)
+        node2 = DecisionNode("node2", player="p1", information_set=info_set)
+
+        node1.add_child(TerminalNode("t1", (S(1),)), "a")
+        node2.add_child(TerminalNode("t2", (S(2),)), "a")
+
+        assert len(info_set.nodes) == 2
+
+        copied = node1.copy()
+
+        assert len(info_set.nodes) == 2
+        assert copied.information_set is not info_set
+        assert copied.information_set.label == "shared"
+        assert len(copied.information_set.nodes) == 1
+        assert copied in copied.information_set.nodes

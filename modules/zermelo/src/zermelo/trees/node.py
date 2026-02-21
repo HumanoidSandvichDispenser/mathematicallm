@@ -25,9 +25,72 @@ class Node(ABC):
                 players.add(node.player)
         return players
 
-    def add_child(self, child: "Node", action: str):
+    def add_child(self, child: "Node", action: str) -> Node:
         child.parent = self
         self.children[action] = child
+        return child
+
+    def remove_child(self, action: str) -> Node:
+        """
+        Remove the child corresponding to the given action.
+
+        Args:
+            action: The action corresponding to the child to remove.
+
+        Returns:
+            The removed child node.
+        """
+        if action not in self.children:
+            raise ValueError(f"Action '{action}' not found among children.")
+        child = self.children.pop(action)
+        child.parent = None
+        return child
+
+    def copy(self) -> "Node":
+        """
+        Create a deep copy of the subtree rooted at this node. The copied nodes
+        will have the same labels and structure, but will be distinct objects
+        in memory. For DecisionNodes that share an InformationSet, the copied
+        nodes will share a new InformationSet.
+
+        Returns:
+            A deep copy of the subtree rooted at this node.
+        """
+        info_set_map: dict[InformationSet, InformationSet] = {}
+
+        # first pass find all info sets, so we can create new InformationSet
+        # objects for them, and be able to set cloned DecisionNodes to point to
+        # the correct new InformationSet objects in the second pass
+        self._populate_info_set_map(info_set_map)
+
+        # second pass: deep copy nodes
+        return self._deep_copy(info_set_map)
+
+    def _populate_info_set_map(
+        self, info_set_map: dict[InformationSet, InformationSet]
+    ) -> None:
+        for node in self.traverse_preorder():
+            if isinstance(node, DecisionNode):
+                original = node.information_set
+                if original not in info_set_map:
+                    info_set_map[original] = InformationSet(
+                        original.label, original.player
+                    )
+
+    @abstractmethod
+    def _deep_copy(
+        self, info_set_map: dict["InformationSet", "InformationSet"]
+    ) -> "Node":
+        """
+        Internal method for deep copy with info set deduplication.
+
+        Args:
+            info_set_map: Maps original InformationSets to their copied counterparts.
+
+        Returns:
+            A deep copy of this node.
+        """
+        pass
 
     def rename_action(self, old_action: str, new_action: str):
         if old_action not in self.children:
@@ -112,6 +175,23 @@ class DecisionNode(Node):
 
         return self.children[action].apply_strategy(strategies)
 
+    def _deep_copy(
+        self, info_set_map: dict["InformationSet", "InformationSet"]
+    ) -> "DecisionNode":
+        new_info_set = info_set_map[self.information_set]
+        new_node = DecisionNode.__new__(DecisionNode)
+        new_node.label = self.label
+        new_node.parent = None
+        new_node.children = {}
+        new_node.player = self.player
+        new_node.information_set = new_info_set
+        new_info_set.nodes.add(new_node)
+        for action, child in self.children.items():
+            new_child = child._deep_copy(info_set_map)
+            new_node.children[action] = new_child
+            new_child.parent = new_node
+        return new_node
+
 
 class ChanceNode(Node):
     def __init__(self, label: str, probability_map: dict[str, Expr]):
@@ -158,6 +238,15 @@ class ChanceNode(Node):
                 )
         return total_payoff
 
+    def _deep_copy(
+        self, info_set_map: dict["InformationSet", "InformationSet"]
+    ) -> "ChanceNode":
+        new_node = ChanceNode(self.label, dict(self.probability_map))
+        for action, child in self.children.items():
+            new_child = child._deep_copy(info_set_map)
+            new_node.add_child(new_child, action)
+        return new_node
+
 
 class TerminalNode(Node):
     def __init__(self, label: str, payoffs: tuple[Expr, ...]):
@@ -172,6 +261,11 @@ class TerminalNode(Node):
 
     def apply_strategy(self, strategies: dict[str, Strategy]) -> tuple[Expr, ...]:
         return self.payoffs
+
+    def _deep_copy(
+        self, info_set_map: dict["InformationSet", "InformationSet"]
+    ) -> "TerminalNode":
+        return TerminalNode(self.label, self.payoffs)
 
 
 class InformationSet:
