@@ -253,44 +253,51 @@ def show_tree(game_id: str) -> str:
 
 
 @mcp.tool(title="Find pure strategies for a player")
-def find_player_strategies(game_id: str, player: str, reduced: bool = False) -> str:
+def find_player_strategies(game_id: str, players: list[str], reduced: bool = True) -> str:
     """
-    Find all pure strategies for a player in an extensive-form game.
+    Find all pure strategies for the specified players in an extensive-form game.
 
     Args:
         game_id: ID of the game tree
-        player: Player identifier (e.g., "alice", "bob", "p0", "p1")
-        reduced: If True, find reduced pure strategies; otherwise full pure strategies
+        player: List of player identifiers to find strategies for (e.g., ["alice", "bob"])
+        reduced: If False, find all full pure strategies. If True (default),
+            find only reduced pure strategies.
 
     Returns:
-        A description of all strategies for the player
+        A description of all strategies for the given players.
     """
     if game_id not in _games:
         return f"Error: Game '{game_id}' not found"
 
     root = _games[game_id]
 
-    try:
-        if reduced:
-            strategies = find_reduced_pure_strategies(root, player)
-            strategy_type = "reduced"
-        else:
-            strategies = find_full_pure_strategies(root, player)
-            strategy_type = "full"
+    output = []
 
-        output = [
-            f"Found {len(strategies)} {strategy_type} pure strategies for player {player} in '{game_id}':"
-        ]
-
-        for i, strategy in enumerate(sorted(strategies, key=str), 1):
-            if strategy._decisions:
-                output.append(f"  Strategy {i}: {dict(strategy._decisions)}")
+    for player in players:
+        try:
+            if reduced:
+                strategies = find_reduced_pure_strategies(root, player)
+                strategy_type = "reduced"
             else:
-                output.append(f"  Strategy {i}: (empty)")
+                strategies = find_full_pure_strategies(root, player)
+                strategy_type = "full"
 
-        return "\n".join(output)
-    except Exception as e:
-        return f"Error finding strategies: {e}"
+            player_out = [
+                f"Found {len(strategies)} {strategy_type} pure strategies "
+                f"for player {player} in '{game_id}':"
+            ]
+
+            for i, strategy in enumerate(sorted(strategies, key=str), 1):
+                if strategy._decisions:
+                    player_out.append(f"  Strategy {i}: {dict(strategy._decisions)}")
+                else:
+                    player_out.append(f"  Strategy {i}: (empty)")
+
+            output.append("\n".join(player_out))
+        except Exception as e:
+            return f"Error finding strategies: {e}"
+
+    return "\n\n".join(output)
 
 
 @mcp.tool(title="Compute strategic form")
