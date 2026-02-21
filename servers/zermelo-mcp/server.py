@@ -296,7 +296,9 @@ def find_player_strategies(game_id: str, player: str, reduced: bool = False) -> 
 @mcp.tool(title="Compute strategic form")
 def compute_strategic_form(game_id: str) -> str:
     """
-    Convert an extensive-form game to strategic (normal) form.
+    Convert an extensive-form game to strategic (normal) form. This also finds
+    the reduced pure strategies for each player, so the resulting strategic
+    form is based on the reduced strategy sets.
 
     Produces a payoff tensor where entry [i0, i1, ..., ik, p] contains
     player p's payoff when player p0 plays strategy i0, player p1 plays
@@ -314,8 +316,8 @@ def compute_strategic_form(game_id: str) -> str:
     root = _games[game_id]
 
     try:
-        players = _get_players(root)
-        profiles = {p: find_full_pure_strategies(root, p) for p in players}
+        players = root.get_players()
+        profiles = {p: find_reduced_pure_strategies(root, p) for p in players}
 
         array, player_order = create_payoff_array(root, profiles)
 

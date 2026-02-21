@@ -10,7 +10,7 @@ class Node(ABC):
         self.parent: "Node | None" = None
         self.children: dict[str, "Node"] = {}
 
-    def get_players(self) -> set[int]:
+    def get_players(self) -> set[str]:
         players = set()
         for node in self.traverse_preorder():
             if isinstance(node, DecisionNode):
@@ -37,6 +37,21 @@ class Node(ABC):
         yield self
         for child in self.children.values():
             yield from child.traverse_preorder()
+
+    def visualize(self, prefix: str = "", is_last: bool = True) -> str:
+        connector = "└── " if is_last else "├── "
+        result = prefix + connector + self._visualize_label() + "\n"
+
+        children = list(self.children.items())
+        for i, (action, child) in enumerate(children):
+            is_last_child = i == len(children) - 1
+            extension = prefix + ("    " if is_last else "│   ")
+            result += child.visualize(extension, is_last_child)
+
+        return result
+
+    def _visualize_label(self) -> str:
+        return self.label
 
     @abstractmethod
     def apply_strategy(self, strategies: dict[str, Strategy]) -> tuple[Expr, ...]:
@@ -66,12 +81,15 @@ class DecisionNode(Node):
     def actions(self):
         return list(self.children.keys())
 
+    def _visualize_label(self) -> str:
+        return f"{self.label} [P{self.player} @{self.information_set.label}]"
+
     def apply_strategy(self, strategies: dict[str, Strategy]) -> tuple[Expr, ...]:
         strategy = strategies[self.player]
 
         if self.information_set.label not in strategy:
             raise ValueError(
-                f"Strategy for player {self.player} does not specify an action for information set '{self.information_set.label}'."
+                f"Strategy for player {self.player} does not specify an action for information set '{self.information_set.label}'. Strategy: {strategy._decisions}"
             )
 
         action = strategy[self.information_set.label]
@@ -136,6 +154,9 @@ class TerminalNode(Node):
 
     def add_child(self, **_):
         raise ValueError("Terminal nodes cannot have children.")
+
+    def _visualize_label(self) -> str:
+        return f"{self.label} → {self.payoffs}"
 
     def apply_strategy(self, strategies: dict[str, Strategy]) -> tuple[Expr, ...]:
         return self.payoffs
