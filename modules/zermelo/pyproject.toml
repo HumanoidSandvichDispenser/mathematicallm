@@ -5,6 +5,7 @@ dependencies = [
     "treelib",
     "sympy",
     "pyyaml",
+    "graphviz",
 ]
 
 [dependency-groups]

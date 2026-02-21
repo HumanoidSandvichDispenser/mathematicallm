@@ -1,6 +1,6 @@
 """MCP server for game tree analysis operations."""
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP, Image
 from zermelo.trees.node import (
     DecisionNode,
     ChanceNode,
@@ -16,6 +16,7 @@ from zermelo.analysis.strategies import (
 )
 from zermelo.analysis.equilibria import find_pure_nash_equilibria
 from zermelo.parsers.yaml import load_game_from_yaml
+from zermelo.visualization.render import render_tree as _render_tree
 
 mcp = FastMCP("zermelo-mcp")
 
@@ -452,6 +453,30 @@ def delete_game(game_id: str) -> str:
 
     del _games[game_id]
     return f"Deleted game '{game_id}'"
+
+
+@mcp.tool(title="Render game tree as image")
+def render_game_tree(game_id: str) -> Image:
+    """
+    Render the game tree as a PNG image.
+
+    The image is laid out left to right. Decision nodes are circles coloured
+    by player. Chance nodes are diamonds. Terminal nodes are rectangles showing
+    the payoff vector. Action names are shown on edges. Nodes that share an
+    information set are connected by a dashed line.
+
+    Args:
+        game_id: ID of the game tree
+
+    Returns:
+        PNG image of the game tree
+    """
+    if game_id not in _games:
+        raise ValueError(f"Game '{game_id}' not found")
+
+    root = _games[game_id]
+    png_bytes = _render_tree(root, format="png")
+    return Image(data=png_bytes, format="png")
 
 
 if __name__ == "__main__":
