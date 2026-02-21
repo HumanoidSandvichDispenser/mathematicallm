@@ -1,58 +1,49 @@
 """MCP server for game tree analysis operations."""
 
 from mcp.server.fastmcp import FastMCP
-from zermelo.extensive import (
-    GameTree,
-    DecisionNodeData,
-    ChanceNodeData,
-    TerminalNodeData,
+from zermelo.trees.node import (
+    DecisionNode,
+    ChanceNode,
+    TerminalNode,
+    InformationSet,
+    Node,
 )
-from zermelo.extensive.strategy import Strategy
-from zermelo.services import subgame_perfect_equilibria as sge
-from zermelo.services.strategic_form import (
-    execute_strategy_profile as exec_profile,
-    extensive_to_strategic,
-)
-from zermelo.services.strategy import (
+from zermelo.trees.strategy import Strategy
+from zermelo.analysis.strategies import (
     find_full_pure_strategies,
     find_reduced_pure_strategies,
+    create_payoff_array,
 )
+from zermelo.analysis.equilibria import find_pure_nash_equilibria
+from zermelo.parsers.yaml import load_game_from_yaml
 
 mcp = FastMCP("zermelo-mcp")
 
-# Session store for game tree objects
-_games: dict[str, GameTree] = {}
+_games: dict[str, Node] = {}
 _counter = 0
 
 
 def _new_id(prefix: str) -> str:
-    """Generate a new unique ID for storing objects."""
     global _counter
     _counter += 1
     return f"{prefix}_{_counter}"
 
 
 @mcp.tool()
-def create_game(name: str | None = None, num_players: int = 2) -> str:
+def create_game(name: str | None = None) -> str:
     """
     Create a new game tree with a root decision node.
 
     Args:
         name: Optional name for the game (auto-generated if not provided)
-        num_players: Number of players in the game (default: 2)
 
     Returns:
         game_id: Unique identifier for the created game
     """
-    game_id = _new_id("game")
-    tree = GameTree(num_players=num_players)
-    tree.create_node(
-        tag="root",
-        identifier="root",
-        data=DecisionNodeData(player=0),
-    )
-    _games[game_id] = tree
-    return f"Created game '{game_id}' with {num_players} players. Root node is decision node for player 0."
+    game_id = _new_id("game") if name is None else name
+    root = DecisionNode("root", player="p0")
+    _games[game_id] = root
+    return f"Created game '{game_id}'. Root node is decision node for player 'p0'."
 
 
 @mcp.tool()
@@ -60,10 +51,9 @@ def add_decision_node(
     game_id: str,
     node_id: str,
     parent_id: str,
-    player: int,
-    probability: str | None = None,
-    information_set: str | None = None,
+    player: str,
     actions: list[str] | None = None,
+    information_set: str | None = None,
 ) -> str:
     """
     Add a decision node to the game tree.
@@ -72,11 +62,10 @@ def add_decision_node(
         game_id: ID of the game tree
         node_id: Unique identifier for the new node
         parent_id: ID of the parent node
-        player: Player index (0-based) who makes the decision at this node
-        probability: Optional probability expression for the edge (for chance node children)
-        information_set: Optional identifier for the information set (for imperfect information)
+        player: Player identifier (e.g., "p0", "p1", "alice", "bob")
         actions: Optional list of action labels (e.g., ["up", "down"]) for this decision.
-            If provided, these are used as action names in strategies instead of child node IDs.
+            These become child keys, and also serve as action names in strategies.
+        information_set: Optional identifier for the information set (for imperfect information)
 
     Returns:
         Success message
@@ -84,32 +73,33 @@ def add_decision_node(
     if game_id not in _games:
         return f"Error: Game '{game_id}' not found"
 
-    tree = _games[game_id]
-
-    if tree.contains(node_id):
-        return f"Error: Node '{node_id}' already exists"
-
-    if not tree.contains(parent_id):
+    root = _games[game_id]
+    parent = _find_node(root, parent_id)
+    if parent is None:
         return f"Error: Parent node '{parent_id}' not found"
 
-    tree.create_node(
-        tag=node_id,
-        identifier=node_id,
-        parent=parent_id,
-        data=DecisionNodeData(
-            player=player,
-            probability=probability,
-            information_set=information_set,
-            actions=actions,
-        ),
-    )
+    if _find_node(root, node_id) is not None:
+        return f"Error: Node '{node_id}' already exists"
 
-    prob_info = f" with edge probability {probability}" if probability else ""
+    info_set_obj = None
+    if information_set:
+        info_set_obj = InformationSet(information_set, player)
+
+    new_node = DecisionNode(node_id, player, information_set=info_set_obj)
+
+    if actions:
+        for action in actions:
+            new_node.add_child(TerminalNode(f"{node_id}_{action}", (0,)), action)
+    else:
+        new_node.add_child(TerminalNode(f"{node_id}_child", (0,)), "default")
+
+    parent.add_child(new_node, node_id)
+
     info_set_info = (
         f" in information set '{information_set}'" if information_set else ""
     )
     actions_info = f" with actions {actions}" if actions else ""
-    return f"Added decision node '{node_id}' for player {player} under '{parent_id}'{prob_info}{info_set_info}{actions_info}"
+    return f"Added decision node '{node_id}' for player {player} under '{parent_id}'{info_set_info}{actions_info}"
 
 
 @mcp.tool()
@@ -117,7 +107,7 @@ def add_chance_node(
     game_id: str,
     node_id: str,
     parent_id: str,
-    probability: str | None = None,
+    probabilities: dict[str, float] | None = None,
 ) -> str:
     """
     Add a chance node to the game tree.
@@ -126,7 +116,7 @@ def add_chance_node(
         game_id: ID of the game tree
         node_id: Unique identifier for the new node
         parent_id: ID of the parent node
-        probability: Optional probability expression for the edge (for chance node children)
+        probabilities: Optional dict of {action: probability} for the children
 
     Returns:
         Success message
@@ -134,22 +124,25 @@ def add_chance_node(
     if game_id not in _games:
         return f"Error: Game '{game_id}' not found"
 
-    tree = _games[game_id]
-
-    if tree.contains(node_id):
-        return f"Error: Node '{node_id}' already exists"
-
-    if not tree.contains(parent_id):
+    root = _games[game_id]
+    parent = _find_node(root, parent_id)
+    if parent is None:
         return f"Error: Parent node '{parent_id}' not found"
 
-    tree.create_node(
-        tag=node_id,
-        identifier=node_id,
-        parent=parent_id,
-        data=ChanceNodeData(probability=probability),
-    )
+    if _find_node(root, node_id) is not None:
+        return f"Error: Node '{node_id}' already exists"
 
-    prob_info = f" with edge probability {probability}" if probability else ""
+    from sympy import Rational
+
+    probs = {k: Rational(v) for k, v in (probabilities or {"default": 1.0}).items()}
+    new_node = ChanceNode(node_id, probs)
+
+    for action in probs:
+        new_node.add_child(TerminalNode(f"{node_id}_{action}", (0,)), action)
+
+    parent.add_child(new_node, node_id)
+
+    prob_info = f" with probabilities {probabilities}" if probabilities else ""
     return f"Added chance node '{node_id}' under '{parent_id}'{prob_info}"
 
 
@@ -158,8 +151,8 @@ def add_terminal_node(
     game_id: str,
     node_id: str,
     parent_id: str,
-    payoffs: str,
-    probability: str | None = None,
+    payoffs: list[float],
+    action: str | None = None,
 ) -> str:
     """
     Add a terminal node to the game tree.
@@ -168,8 +161,8 @@ def add_terminal_node(
         game_id: ID of the game tree
         node_id: Unique identifier for the new node
         parent_id: ID of the parent node
-        payoffs: Comma-separated payoffs for each player (e.g., "3,1" for 2 players)
-        probability: Optional probability expression for the edge (for chance node children)
+        payoffs: List of payoffs for each player (e.g., [3, 1] for 2 players)
+        action: The action key under parent to connect this terminal node (defaults to node_id)
 
     Returns:
         Success message
@@ -177,225 +170,74 @@ def add_terminal_node(
     if game_id not in _games:
         return f"Error: Game '{game_id}' not found"
 
-    tree = _games[game_id]
-
-    if tree.contains(node_id):
-        return f"Error: Node '{node_id}' already exists"
-
-    if not tree.contains(parent_id):
+    root = _games[game_id]
+    parent = _find_node(root, parent_id)
+    if parent is None:
         return f"Error: Parent node '{parent_id}' not found"
 
-    # Parse payoffs
-    try:
-        payoff_values = tuple(p.strip() for p in payoffs.split(","))
-        if len(payoff_values) != tree.num_players:
-            return (
-                f"Error: Expected {tree.num_players} payoffs, got {len(payoff_values)}"
-            )
-    except Exception as e:
-        return f"Error parsing payoffs: {e}"
+    terminal = TerminalNode(node_id, tuple(payoffs))
+    action_key = action if action else node_id
+    parent.add_child(terminal, action_key)
 
-    tree.create_node(
-        tag=node_id,
-        identifier=node_id,
-        parent=parent_id,
-        data=TerminalNodeData(payoffs=payoff_values, probability=probability),
-    )
-
-    prob_info = f" with edge probability {probability}" if probability else ""
-    return f"Added terminal node '{node_id}' under '{parent_id}' with payoffs {payoff_values}{prob_info}"
+    return f"Added terminal node '{node_id}' under '{parent_id}' with payoffs {payoffs}"
 
 
-@mcp.tool(title="Solve perfect game with backward induction")
-def solve_perfect_game(game_id: str) -> str:
-    """
-    Solve the game using backward induction.
-
-    Args:
-        game_id: ID of the game tree
-
-    Returns:
-        The equilibrium payoffs and full solution details
-    """
-    if game_id not in _games:
-        return f"Error: Game '{game_id}' not found"
-
-    tree = _games[game_id]
-
-    try:
-        result = sge.backward_induction(tree, mutate=True)
-
-        # Format result
-        payoff_strs = [str(p) for p in result]
-        output = [f"Backward induction solution for '{game_id}':"]
-        output.append(f"Equilibrium payoffs: ({', '.join(payoff_strs)})")
-        output.append("\nNode values:")
-
-        # Show BI values for all nodes
-        for node_id in tree.expand_tree():
-            node = tree.get_node(node_id)
-            if node.is_terminal:
-                output.append(f"  {node_id} (terminal): {node.data.bi_value}")
-            elif hasattr(node.data, "bi_value") and node.data.bi_value is not None:
-                bi_val = node.data.bi_value
-                bi_strs = [str(v) for v in bi_val]
-                if node.is_decision:
-                    # Show optimal children for decision nodes
-                    optimal_str = (
-                        f", optimal: {node.data.optimal_children}"
-                        if node.data.optimal_children
-                        else ""
-                    )
-                    output.append(
-                        f"  {node_id} (player {node.data.player}): ({', '.join(bi_strs)}){optimal_str}"
-                    )
-                else:
-                    output.append(f"  {node_id} (chance): ({', '.join(bi_strs)})")
-
-        return "\n".join(output)
-    except Exception as e:
-        return f"Error solving game: {e}"
+def _find_node(root: Node, node_id: str) -> Node | None:
+    """Find a node by label in the tree."""
+    if root.label == node_id:
+        return root
+    for child in root.children.values():
+        result = _find_node(child, node_id)
+        if result:
+            return result
+    return None
 
 
-@mcp.tool(title="Get all SPNEs")
-def get_all_spne(game_id: str) -> str:
-    """
-    Get all subgame perfect Nash equilibria with complete strategy profiles.
-
-    Must be called after solve_game(). Returns the full strategy for every
-    player in every equilibrium — specifying what each player would do at
-    ALL their information sets (not just those on the equilibrium path).
-    When there are ties, all equilibria are enumerated.
-
-    Use get_all_equilibria() if you only need the on-path actions and payoffs.
-
-    Args:
-        game_id: ID of the game tree
-
-    Returns:
-        All SPNEs with payoffs, equilibrium path actions, and per-player strategies
-    """
-    if game_id not in _games:
-        return f"Error: Game '{game_id}' not found"
-
-    tree = _games[game_id]
-
-    try:
-        spne_list = sge.get_all_spne(tree)
-
-        output = [f"Subgame perfect Nash equilibria for '{game_id}':"]
-        output.append(f"Found {len(spne_list)} equilibrium/equilibria\n")
-
-        for i, spne in enumerate(spne_list, 1):
-            payoff_strs = [str(p) for p in spne.payoffs]
-            output.append(f"Equilibrium {i}:")
-            output.append(f"  Payoffs: ({', '.join(payoff_strs)})")
-
-            if spne.path:
-                output.append("  Equilibrium path:")
-                for node_id, child_id in sorted(spne.path.items()):
-                    output.append(f"    {node_id} → {child_id}")
-            else:
-                output.append(
-                    "  Equilibrium path: (none - tree is just a terminal node)"
-                )
-
-            output.append("  Strategies:")
-            for player_idx, strategy in enumerate(spne.strategies):
-                if strategy.decisions:
-                    output.append(f"    Player {player_idx}:")
-                    for info_set, action in sorted(strategy.decisions.items()):
-                        output.append(f"      {info_set} → {action}")
-                else:
-                    output.append(f"    Player {player_idx}: (no decisions)")
-
-            output.append("")
-
-        return "\n".join(output)
-    except Exception as e:
-        return f"Error getting SPNE: {e}"
+def _count_nodes(root: Node) -> int:
+    """Count nodes in tree."""
+    count = 1
+    for child in root.children.values():
+        count += _count_nodes(child)
+    return count
 
 
-@mcp.tool(title="Get game state as JSON")
-def get_game_state(game_id: str, include_solution: bool = False) -> str:
-    """
-    Get the current state of a game tree in JSON format.
+def _describe_node(root: Node, indent: int = 0) -> list[str]:
+    """Generate a text description of the tree."""
+    prefix = "  " * indent
+    lines = []
 
-    Args:
-        game_id: ID of the game tree
-        include_solution: Whether to include BI solution values (default: False)
+    if isinstance(root, TerminalNode):
+        lines.append(f"{prefix}{root.label} (terminal): {root.payoffs}")
+    elif isinstance(root, ChanceNode):
+        lines.append(f"{prefix}{root.label} (chance): {root.probability_map}")
+        for action, child in root.children.items():
+            lines.extend(_describe_node(child, indent + 1))
+    elif isinstance(root, DecisionNode):
+        lines.append(
+            f"{prefix}{root.label} (P{root.player} @{root.information_set.label}): {list(root.children.keys())}"
+        )
+        for action, child in root.children.items():
+            lines.extend(_describe_node(child, indent + 1))
 
-    Returns:
-        JSON representation of the game tree
-    """
-    if game_id not in _games:
-        return f"Error: Game '{game_id}' not found"
-
-    tree = _games[game_id]
-
-    try:
-        import json
-
-        state_dict = tree.to_dict(include_bi_values=include_solution)
-        return json.dumps(state_dict, indent=2)
-    except Exception as e:
-        return f"Error serializing game: {e}"
+    return lines
 
 
-@mcp.tool()
-def list_games() -> str:
-    """
-    List all active game sessions.
-
-    Returns:
-        List of game IDs and their basic info
-    """
-    if not _games:
-        return "No active games"
-
-    output = ["Active games:"]
-    for game_id, tree in _games.items():
-        num_nodes = tree.size()
-        output.append(f"  {game_id}: {tree.num_players} players, {num_nodes} nodes")
-
-    return "\n".join(output)
+def _get_players(root: Node) -> list[str]:
+    """Get all unique players in the game tree."""
+    players = set()
+    for node in root.traverse_preorder():
+        if isinstance(node, DecisionNode):
+            players.add(node.player)
+    return sorted(players, key=str)
 
 
-@mcp.tool()
-def delete_game(game_id: str) -> str:
-    """
-    Delete a game from the session store.
-
-    Args:
-        game_id: ID of the game tree to delete
-
-    Returns:
-        Success message
-    """
-    if game_id not in _games:
-        return f"Error: Game '{game_id}' not found"
-
-    del _games[game_id]
-    return f"Deleted game '{game_id}'"
-
-
-@mcp.tool()
-def show_tree(
-    game_id: str,
-    show_id: bool = True,
-    show_probability: bool = True,
-    show_bi_value: bool = True,
-    line_type: str = "ascii-ex",
-) -> str:
+@mcp.tool(title="Show game tree")
+def show_tree(game_id: str) -> str:
     """
     Display the game tree structure in text format.
 
     Args:
         game_id: ID of the game tree
-        show_id: Show node identifiers (default: True)
-        show_probability: Show edge probabilities (default: True)
-        show_bi_value: Show backward induction values (default: True)
-        line_type: Tree line style - 'ascii', 'ascii-ex', 'ascii-em' (default: 'ascii-ex')
 
     Returns:
         Tree visualization
@@ -403,144 +245,21 @@ def show_tree(
     if game_id not in _games:
         return f"Error: Game '{game_id}' not found"
 
-    tree = _games[game_id]
-
-    try:
-        # Build tree representation
-        output = [f"Game tree '{game_id}':"]
-        output.append(
-            tree.show(
-                stdout=False,
-                show_id=show_id,
-                show_probability=show_probability,
-                show_bi_value=show_bi_value,
-                line_type=line_type,
-            )
-        )
-        return "\n".join(output)
-    except Exception as e:
-        return f"Error displaying tree: {e}"
-
-
-@mcp.tool()
-def load_game(game_json: str, name: str | None = None) -> str:
-    """
-    Create a game tree from a JSON description. This is the fastest way to
-    define a game — write the entire tree in one shot instead of adding nodes
-    one by one.
-
-    Args:
-        game_json: JSON string describing the game tree (see schema below)
-        name: Optional name for the game (auto-generated if not provided)
-
-    Returns:
-        game_id that can be used with solve_game, show_tree, etc.
-
-    ## JSON Schema
-
-    ```json
-    {
-      "num_players": <int>,          // number of players (default: 2)
-      "root": "<node_id>",           // id of the root node
-      "nodes": [
-        {
-          "id": "<node_id>",         // unique identifier for this node
-          "tag": "<label>",          // optional human-readable label (defaults to id)
-          "parent": "<node_id>",     // parent node id; null or omitted for the root
-          "data": { ... }            // node data (see types below)
-        },
-        ...
-      ]
-    }
-    ```
-
-    ### Node data types
-
-    **Decision node** — a player makes a choice:
-    ```json
-    { "type": "decision", "player": <int> }
-    ```
-    Optional fields:
-    - `"probability"`: edge probability (e.g., `"1/2"`)
-    - `"information_set"`: string id grouping nodes in the same info set
-    - `"actions"`: list of action labels (e.g., `["up", "down"]`) used as
-      action names in strategies (this is very necessary for imperfect
-      information games, otherwise child node ids are used as action names)
-
-    **Chance node** — nature moves with given probabilities on its children:
-    ```json
-    { "type": "chance" }
-    ```
-    Probabilities belong on the **children** of a chance node, not on the chance node
-    itself. Optional field: `"probability"` (edge probability for this node's own edge).
-
-    **Terminal node** — end of the game with payoffs for each player:
-    ```json
-    { "type": "terminal", "payoffs": [<p1>, <p2>, ...] }
-    ```
-    Payoffs can be integers, floats, or fraction strings like `"1/2"`.
-    Optional field: `"probability"` (edge probability).
-
-    ## Example — Centipede game (2 players, 4 terminal nodes)
-
-    ```json
-    {
-      "num_players": 2,
-      "root": "p1a",
-      "nodes": [
-        {"id": "p1a",  "parent": null,  "data": {"type": "decision", "player": 0}},
-        {"id": "stop1","parent": "p1a", "data": {"type": "terminal", "payoffs": [1, 0]}},
-        {"id": "p2a",  "parent": "p1a", "data": {"type": "decision", "player": 1}},
-        {"id": "stop2","parent": "p2a", "data": {"type": "terminal", "payoffs": [0, 3]}},
-        {"id": "p1b",  "parent": "p2a", "data": {"type": "decision", "player": 0}},
-        {"id": "stop3","parent": "p1b", "data": {"type": "terminal", "payoffs": [2, 1]}},
-        {"id": "cont", "parent": "p1b", "data": {"type": "terminal", "payoffs": [1, 4]}}
-      ]
-    }
-    ```
-    """
-    import json
-
-    try:
-        raw = json.loads(game_json)
-    except json.JSONDecodeError as e:
-        return f"Error: Invalid JSON — {e}"
-
-    # Fill in optional tag fields
-    for node in raw.get("nodes", []):
-        if "tag" not in node or node["tag"] is None:
-            node["tag"] = node["id"]
-        # Normalise payoffs: allow lists in addition to tuples (JSON has no tuples)
-        data = node.get("data")
-        if data and data.get("type") == "terminal":
-            data["payoffs"] = list(data["payoffs"])
-
-    try:
-        tree = GameTree.from_dict(raw)
-    except Exception as e:
-        return f"Error building game tree: {e}"
-
-    game_id = _new_id("game") if name is None else name
-    if game_id in _games:
-        return f"Error: A game named '{game_id}' already exists"
-    _games[game_id] = tree
-
-    num_nodes = tree.size()
-    return (
-        f"Loaded game '{game_id}' with {tree.num_players} players and {num_nodes} nodes. "
-        f"Call solve_game('{game_id}') to run backward induction (only for perfect information)."
-    )
+    root = _games[game_id]
+    lines = [f"Game tree '{game_id}':", f"Root: {root.label}"]
+    lines.extend(_describe_node(root, 1))
+    return "\n".join(lines)
 
 
 @mcp.tool(title="Find pure strategies for a player")
-def find_player_strategies(game_id: str, player: int, reduced: bool = False) -> str:
+def find_player_strategies(game_id: str, player: str, reduced: bool = False) -> str:
     """
     Find all pure strategies for a player in an extensive-form game.
 
     Args:
         game_id: ID of the game tree
-        player: Player index (0-based)
-        reduced: If True, find reduced pure strategies; otherwise full pure strategies (default: False)
+        player: Player identifier (e.g., "alice", "bob", "p0", "p1")
+        reduced: If True, find reduced pure strategies; otherwise full pure strategies
 
     Returns:
         A description of all strategies for the player
@@ -548,25 +267,23 @@ def find_player_strategies(game_id: str, player: int, reduced: bool = False) -> 
     if game_id not in _games:
         return f"Error: Game '{game_id}' not found"
 
-    tree = _games[game_id]
+    root = _games[game_id]
 
     try:
         if reduced:
-            strategies = find_reduced_pure_strategies(tree, player)
+            strategies = find_reduced_pure_strategies(root, player)
             strategy_type = "reduced"
         else:
-            strategies = find_full_pure_strategies(tree, player)
+            strategies = find_full_pure_strategies(root, player)
             strategy_type = "full"
 
         output = [
             f"Found {len(strategies)} {strategy_type} pure strategies for player {player} in '{game_id}':"
         ]
 
-        for i, strategy in enumerate(sorted(strategies, key=repr), 1):
-            if strategy.decisions:
-                output.append(f"  Strategy {i}:")
-                for info_set, action in sorted(strategy.decisions.items()):
-                    output.append(f"    {info_set} → {action}")
+        for i, strategy in enumerate(sorted(strategies, key=str), 1):
+            if strategy._decisions:
+                output.append(f"  Strategy {i}: {dict(strategy._decisions)}")
             else:
                 output.append(f"  Strategy {i}: (empty)")
 
@@ -581,7 +298,7 @@ def compute_strategic_form(game_id: str) -> str:
     Convert an extensive-form game to strategic (normal) form.
 
     Produces a payoff tensor where entry [i0, i1, ..., ik, p] contains
-    player p's payoff when player 0 plays strategy i0, player 1 plays
+    player p's payoff when player p0 plays strategy i0, player p1 plays
     strategy i1, etc.
 
     Args:
@@ -593,34 +310,29 @@ def compute_strategic_form(game_id: str) -> str:
     if game_id not in _games:
         return f"Error: Game '{game_id}' not found"
 
-    tree = _games[game_id]
+    root = _games[game_id]
 
     try:
-        strategies, payoffs = extensive_to_strategic(tree)
+        players = _get_players(root)
+        profiles = {p: find_full_pure_strategies(root, p) for p in players}
+
+        array, player_order = create_payoff_array(root, profiles)
 
         output = [
             f"Strategic form for '{game_id}':",
-            f"Players: {tree.num_players}",
+            f"Players: {player_order}",
+            str(array),
         ]
 
-        for player_idx, player_strategies in enumerate(strategies):
-            output.append(
-                f"\nPlayer {player_idx} strategies ({len(player_strategies)}):"
-            )
-            for i, strategy in enumerate(player_strategies):
-                if strategy.decisions:
-                    decisions_str = ", ".join(
-                        f"{info_set}→{action}"
-                        for info_set, action in sorted(strategy.decisions.items())
-                    )
-                    output.append(f"  {i}: {decisions_str}")
-                else:
-                    output.append(f"  {i}: (empty)")
+        for player, strats in profiles.items():
+            output.append(f"\nPlayer '{player}' strategies ({len(strats)}):")
+            for i, strategy in enumerate(strats):
+                output.append(f"  {i}: {dict(strategy._decisions)}")
 
-        output.append(f"\nPayoff tensor shape: {payoffs.shape}")
+        output.append(f"\nPayoff tensor shape: {array.shape}")
 
         total_profiles = 1
-        for n in payoffs.shape[:-1]:
+        for n in array.shape[:-1]:
             total_profiles *= n
         output.append(f"Total strategy profiles: {total_profiles}")
 
@@ -634,14 +346,10 @@ def execute_profile(game_id: str, profile_json: str) -> str:
     """
     Execute a strategy profile and return the resulting payoff.
 
-    Given a game tree and a mapping from player index to their Strategy,
-    walks through the tree from the root and returns the terminal payoff.
-
     Args:
         game_id: ID of the game tree
-        profile_json: JSON string mapping player indices to their strategy decisions.
-            Format: {"<player_idx>": {"<info_set>": "<action_id>", ...}, ...}
-            Example: {"0": {"root": "left"}, "1": {}}
+        profile_json: JSON string mapping player identifiers to their strategy decisions.
+            Format: {"p0": {"root": "left"}, "p1": {}}
 
     Returns:
         The resulting payoff tuple
@@ -651,7 +359,7 @@ def execute_profile(game_id: str, profile_json: str) -> str:
     if game_id not in _games:
         return f"Error: Game '{game_id}' not found"
 
-    tree = _games[game_id]
+    root = _games[game_id]
 
     try:
         profile_data = json.loads(profile_json)
@@ -659,17 +367,91 @@ def execute_profile(game_id: str, profile_json: str) -> str:
         return f"Error: Invalid JSON — {e}"
 
     try:
-        profile: dict[int, Strategy] = {}
-        for player_str, decisions in profile_data.items():
-            player = int(player_str)
-            profile[player] = Strategy(decisions)
+        strategies = {
+            player: Strategy(decisions) for player, decisions in profile_data.items()
+        }
 
-        payoff = exec_profile(tree, profile)
+        payoff = root.apply_strategy(strategies)
 
         payoff_strs = [str(p) for p in payoff]
         return f"Payoff: ({', '.join(payoff_strs)})"
     except Exception as e:
         return f"Error executing profile: {e}"
+
+
+@mcp.tool(title="Load game from YAML")
+def load_game_yaml(yaml_content: str, name: str | None = None) -> str:
+    """
+    Create a game tree from a YAML description. This is the preferred way of
+    creating games, as it allows you to specify the entire tree structure in
+    one go.
+
+    Args:
+        yaml_content: YAML string describing the game tree
+        name: Optional name for the game (auto-generated if not provided)
+
+    Returns:
+        Success message with game_id
+
+    ## YAML Format
+
+    ```yaml
+    root:
+        type: decision
+        label: root
+        player: 0
+        children:
+            left:
+                type: terminal
+                label: left
+                payoffs: [1, 2]
+            right:
+                type: decision
+                label: n1
+                player: 1
+                children:
+                    up:
+                        type: terminal
+                        label: up
+                        payoffs: [3, 4]
+
+    information_sets:
+        shared:
+            player: 1
+    ```
+    """
+    try:
+        root = load_game_from_yaml(yaml_content)
+    except Exception as e:
+        return f"Error loading YAML: {e}"
+
+    game_id = _new_id("game") if name is None else name
+    _games[game_id] = root
+
+    return f"Loaded game '{game_id}' with root node '{root.label}'."
+
+
+@mcp.tool()
+def list_games() -> str:
+    """List all active game sessions."""
+    if not _games:
+        return "No active games"
+
+    output = ["Active games:"]
+    for game_id, root in _games.items():
+        output.append(f"  {game_id}: root='{root.label}' ({_count_nodes(root)} nodes)")
+
+    return "\n".join(output)
+
+
+@mcp.tool()
+def delete_game(game_id: str) -> str:
+    """Delete a game from the session store."""
+    if game_id not in _games:
+        return f"Error: Game '{game_id}' not found"
+
+    del _games[game_id]
+    return f"Deleted game '{game_id}'"
 
 
 if __name__ == "__main__":
