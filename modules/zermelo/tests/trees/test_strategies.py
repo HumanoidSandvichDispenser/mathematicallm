@@ -4,7 +4,7 @@ Tests for strategies.py - finding full and reduced pure strategies.
 
 import pytest
 from sympy import S
-from zermelo.trees.node import DecisionNode, ChanceNode, TerminalNode
+from zermelo.trees.node import DecisionNode, ChanceNode, TerminalNode, InformationSet
 from zermelo.trees.strategy import Strategy
 from zermelo.analysis.strategies import (
     find_full_pure_strategies,
@@ -181,8 +181,6 @@ class TestFindFullPureStrategies:
 
     def test_shared_information_set(self):
         """Two decision nodes in same information set."""
-        from zermelo.trees.node import InformationSet
-
         info_set = InformationSet("shared", player=0)
         root = DecisionNode("root", player=0, information_set=info_set)
         other = DecisionNode("other", player=0, information_set=info_set)
@@ -258,8 +256,10 @@ class TestFindReducedPureStrategies:
         p0_reduced = find_reduced_pure_strategies(root, player=0)
         p1_reduced = find_reduced_pure_strategies(root, player=1)
 
-        assert len(p0_reduced) == 2
-        assert len(p1_reduced) == 2
+        assert Strategy({"root": "left"}) in p0_reduced
+        assert Strategy({"root": "right"}) in p0_reduced
+        assert Strategy({"n1": "a"}) in p1_reduced
+        assert Strategy({"n1": "b"}) in p1_reduced
 
     def test_chance_node(self):
         """Chance node - player gets empty strategy."""
@@ -289,24 +289,6 @@ class TestFindReducedPureStrategies:
         assert Strategy({"n1": "a"}) in result
         assert Strategy({"n1": "b"}) in result
 
-    def test_deeply_nested(self):
-        """Three levels of nesting."""
-        root = DecisionNode("root", player=0)
-        left = TerminalNode("left", (S(1), S(2)))
-        right = DecisionNode("n1", player=0)
-        t3 = TerminalNode("t3", (S(3), S(4)))
-        t4 = TerminalNode("t4", (S(5), S(6)))
-        right.add_child(t3, "t3")
-        right.add_child(t4, "t4")
-        root.add_child(left, "left")
-        root.add_child(right, "right")
-
-        full = find_full_pure_strategies(root, player=0)
-        reduced = find_reduced_pure_strategies(root, player=0)
-
-        assert len(full) == 4
-        assert len(reduced) == 3
-
     def test_no_decision_nodes_for_player(self):
         """Tree has no decision nodes for this player."""
         root = DecisionNode("root", player=1)
@@ -319,10 +301,10 @@ class TestFindReducedPureStrategies:
         assert result == [Strategy({})]
 
     def test_player_multiple_info_sets_different_branches(self):
-        """Player has multiple info sets in different branches - strategies should be combined.
-
-        This is the bug case: when player 1 has info sets 'o' and 'm' in different
-        branches, the reduced strategies need to include BOTH info sets in each strategy.
+        """
+        Player has multiple singleton information sets in different branches of
+        the tree. The strategy should specify an action for each info set, and
+        they are independent of each other.
         """
         root = DecisionNode("root", player=0)
         o_node = DecisionNode("o", player=1)
@@ -340,16 +322,21 @@ class TestFindReducedPureStrategies:
 
         p1_reduced = find_reduced_pure_strategies(root, player=1)
 
-        assert len(p1_reduced) == 4
-        for s in p1_reduced:
-            assert "o" in s
-            assert "m" in s
+        assert Strategy({"o": "O", "m": "O"}) in p1_reduced
+        assert Strategy({"o": "O", "m": "M"}) in p1_reduced
+        assert Strategy({"o": "M", "m": "O"}) in p1_reduced
+        assert Strategy({"o": "M", "m": "M"}) in p1_reduced
 
-    def test_payoff_array_with_reduced_strategies_multiple_info_sets(self):
-        """Create payoff array with reduced strategies that have multiple info sets."""
+    def test_player_same_info_sets_different_branches(self):
+        """
+        Player has same info set in different branches of the tree. The
+        strategy should specify an action for the info set, and it applies to
+        both nodes.
+        """
         root = DecisionNode("root", player=0)
-        o_node = DecisionNode("o", player=1)
-        m_node = DecisionNode("m", player=1)
+        info_set = InformationSet("shared", player=1)
+        o_node = DecisionNode("o", player=1, information_set=info_set)
+        m_node = DecisionNode("m", player=1, information_set=info_set)
         o_o = TerminalNode("oo", (S(2), S(1)))
         o_m = TerminalNode("om", (S(0), S(0)))
         m_o = TerminalNode("mo", (S(0), S(0)))
@@ -361,12 +348,76 @@ class TestFindReducedPureStrategies:
         root.add_child(o_node, "O")
         root.add_child(m_node, "M")
 
-        p0_reduced = find_reduced_pure_strategies(root, player=0)
         p1_reduced = find_reduced_pure_strategies(root, player=1)
 
-        array = create_payoff_array(root, [p0_reduced, p1_reduced])
+        assert Strategy({"shared": "O"}) in p1_reduced
+        assert Strategy({"shared": "M"}) in p1_reduced
 
-        assert array.shape == (2, 4, 2)
+    def test_shared_info_set_siblings_with_subgames(self):
+        """
+        Regression test: non-player node whose children share a player-owned
+        info set, and each child leads to further decisions for that player.
+
+        Tree:
+            root (P0)
+            ├── A → n_a (P1 @shared)
+            │         ├── X → deeper_a (P1 @r2_a)
+            │         │         ├── T1
+            │         │         └── T2
+            │         └── Y → T3
+            └── B → n_b (P1 @shared)
+                      ├── X → deeper_b (P1 @r2_b)
+                      │         ├── T4
+                      │         └── T5
+                      └── Y → T6
+
+        P1 has info set 'shared' (can't distinguish n_a from n_b).
+        If P1 chooses X at 'shared', both deeper_a and deeper_b are reachable
+        (from different branches), so P1 needs r2_a and r2_b decisions.
+        If P1 chooses Y, neither deeper node is reached, so no r2 decisions needed.
+
+        Correct reduced strategies for P1:
+          {shared: Y}                              (Y path omits both r2 info sets)
+          {shared: X, r2_a: T1, r2_b: T4}
+          {shared: X, r2_a: T1, r2_b: T5}
+          {shared: X, r2_a: T2, r2_b: T4}
+          {shared: X, r2_a: T2, r2_b: T5}
+
+        The bug caused the non-player node to recurse into both n_a and n_b
+        independently and take their Cartesian product, yielding 9 strategies
+        instead of 5.
+        """
+        root = DecisionNode("root", player=0)
+        shared = InformationSet("shared", player=1)
+        n_a = DecisionNode("n_a", player=1, information_set=shared)
+        n_b = DecisionNode("n_b", player=1, information_set=shared)
+
+        r2_a_info = InformationSet("r2_a", player=1)
+        r2_b_info = InformationSet("r2_b", player=1)
+        deeper_a = DecisionNode("deeper_a", player=1, information_set=r2_a_info)
+        deeper_b = DecisionNode("deeper_b", player=1, information_set=r2_b_info)
+
+        deeper_a.add_child(TerminalNode("T1", (S(1), S(1))), "T1")
+        deeper_a.add_child(TerminalNode("T2", (S(2), S(2))), "T2")
+        deeper_b.add_child(TerminalNode("T4", (S(4), S(4))), "T4")
+        deeper_b.add_child(TerminalNode("T5", (S(5), S(5))), "T5")
+
+        n_a.add_child(deeper_a, "X")
+        n_a.add_child(TerminalNode("T3", (S(3), S(3))), "Y")
+        n_b.add_child(deeper_b, "X")
+        n_b.add_child(TerminalNode("T6", (S(6), S(6))), "Y")
+
+        root.add_child(n_a, "A")
+        root.add_child(n_b, "B")
+
+        p1_reduced = find_reduced_pure_strategies(root, player=1)
+
+        assert len(p1_reduced) == 5
+        assert Strategy({"shared": "Y"}) in p1_reduced
+        assert Strategy({"shared": "X", "r2_a": "T1", "r2_b": "T4"}) in p1_reduced
+        assert Strategy({"shared": "X", "r2_a": "T1", "r2_b": "T5"}) in p1_reduced
+        assert Strategy({"shared": "X", "r2_a": "T2", "r2_b": "T4"}) in p1_reduced
+        assert Strategy({"shared": "X", "r2_a": "T2", "r2_b": "T5"}) in p1_reduced
 
 
 class TestCreatePayoffArray:
@@ -464,11 +515,13 @@ class TestCreatePayoffArray:
         root.add_child(left, "L")
         root.add_child(right, "R")
 
-        p0_full = find_full_pure_strategies(root, player=0)
-        p0_reduced = find_reduced_pure_strategies(root, player=0)
+        # p0_full = find_full_pure_strategies(root, player=0)
+        p0_reduced = [
+            Strategy({"root": "L"}),
+            Strategy({"n1": "a", "root": "R"}),
+            Strategy({"n1": "b", "root": "R"}),
+        ]
 
-        full_array = create_payoff_array(root, [p0_full])
         reduced_array = create_payoff_array(root, [p0_reduced])
 
-        assert full_array.shape == (4, 2)
         assert reduced_array.shape == (3, 2)

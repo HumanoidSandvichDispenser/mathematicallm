@@ -60,43 +60,90 @@ def find_reduced_pure_strategies(root: Node, player: int) -> list[Strategy]:
     """
     Finds all reduced pure strategies for the game tree rooted at `root` for
     the specified `player`. A reduced pure strategy is a strategy that
-    specifies an action for every decision node in the game tree that is
-    reachable under some strategy profile. The returned strategies are
-    represented as dictionaries mapping information set labels to actions.
+    specifies an action for every decision node that is reachable under some
+    strategy profile.
+
+    The algorithm mirrors find_full_pure_strategies with one key difference:
+    at the player's own decision node, for each action we only recurse into
+    the subtrees reachable via that action (across all nodes in the same
+    information set), rather than taking the product over all children.
     """
     if isinstance(root, TerminalNode):
         return [Strategy({})]
 
     if isinstance(root, DecisionNode) and root.player == player:
-        info_set = root.information_set.label
+        info_set = root.information_set
+        info_set_label = info_set.label
+
         results = []
-        for action, child in root.children.items():
-            child_strategies = find_reduced_pure_strategies(child, player)
-            if not child_strategies:
-                child_strategies = [Strategy({})]
-            for s in child_strategies:
-                combined = {info_set: action}
-                combined.update(s)
+        for action in root.actions:
+            # Collect subgame strategies reachable via `action` from every
+            # node in this information set (we must handle all of them since
+            # we cannot distinguish which node we are at).
+            per_node_strats: list[list[Strategy]] = []
+            for node in info_set.nodes:
+                child = node.children[action]
+                per_node_strats.append(find_reduced_pure_strategies(child, player))
+
+            # Take the Cartesian product across all nodes in the info set,
+            # then merge the resulting strategy dicts.
+            for combo in product(*per_node_strats):
+                combined: dict = {info_set_label: action}
+                for s in combo:
+                    combined.update(s)
                 results.append(Strategy(combined))
-        return results
 
-    child_strategies_list: list[list[Strategy]] = []
+        seen = set()
+        deduplicated = []
+        for s in results:
+            key = tuple(sorted(s.items()))
+            if key not in seen:
+                seen.add(key)
+                deduplicated.append(s)
+
+        return deduplicated
+
+    # Chance node or other player's decision node: all children are potentially
+    # reachable. However, if multiple children are player-owned nodes in the
+    # same information set, we must not recurse into each independently —
+    # the info set handler already visits all its nodes when called on any
+    # one representative. Recursing into each sibling separately would
+    # multiply the strategies from each sibling's sub-tree as if they were
+    # independent decisions, when in fact they share one info set entry.
+    #
+    # Solution: group children by (player-owned info set label), deduplicate
+    # so each info set appears only once, then take the Cartesian product of
+    # the deduplicated groups.
+    seen_info_sets: set[str] = set()
+    representative_children: list[Node] = []
     for child in root.children.values():
-        child_strategies = find_reduced_pure_strategies(child, player)
-        if child_strategies:
-            child_strategies_list.append(child_strategies)
+        if isinstance(child, DecisionNode) and child.player == player:
+            label = child.information_set.label
+            if label in seen_info_sets:
+                continue  # already have a representative for this info set
+            seen_info_sets.add(label)
+        representative_children.append(child)
 
-    if not child_strategies_list:
-        return [Strategy({})]
+    child_strategies = [
+        find_reduced_pure_strategies(child, player) for child in representative_children
+    ]
 
     results = []
-    for strategy_combination in product(*child_strategies_list):
+    for combo in product(*child_strategies):
         combined = {}
-        for s in strategy_combination:
+        for s in combo:
             combined.update(s)
         results.append(Strategy(combined))
 
-    return results
+    seen = set()
+    deduplicated = []
+    for s in results:
+        key = tuple(sorted(s.items()))
+        if key not in seen:
+            seen.add(key)
+            deduplicated.append(s)
+
+    return deduplicated
 
 
 def create_payoff_array(root: Node, profiles: list[tuple[Strategy]]) -> NDimArray:
