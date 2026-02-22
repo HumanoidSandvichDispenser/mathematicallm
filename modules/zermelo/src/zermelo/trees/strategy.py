@@ -15,6 +15,10 @@ class Strategy(Mapping):
     def __len__(self):
         return len(self._decisions)
 
+    def __str__(self):
+        items = ", ".join(f"{k}: {v}" for k, v in sorted(self._decisions.items()))
+        return f"{{{items}}}"
+
     def __repr__(self):
         items = ", ".join(f"{k}: {v}" for k, v in sorted(self._decisions.items()))
         return f"Strategy({items})"

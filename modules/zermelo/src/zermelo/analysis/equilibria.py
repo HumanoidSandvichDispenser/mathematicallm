@@ -1,7 +1,7 @@
 from itertools import product
 
 from sympy.tensor.array.ndim_array import NDimArray
-from zermelo.trees.node import Node
+from zermelo.trees.node import Node, DecisionNode, TerminalNode
 from zermelo.trees.strategy import Strategy
 
 
