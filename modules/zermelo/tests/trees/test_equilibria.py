@@ -3,10 +3,14 @@ Tests for equilibria.py - finding Nash equilibria.
 """
 
 import pytest
-from sympy import S
+from sympy import S, Rational
 from sympy.tensor.array.ndim_array import NDimArray
 from zermelo.trees.strategy import Strategy
-from zermelo.analysis.equilibria import find_pure_nash_equilibria
+from zermelo.trees.mixed_strategy import MixedStrategy
+from zermelo.analysis.equilibria import (
+    find_pure_nash_equilibria,
+    find_mixed_nash_equilibria,
+)
 
 
 class TestFindPureNashEquilibria:
@@ -96,3 +100,69 @@ class TestFindPureNashEquilibria:
         assert len(ne) == 2
         assert (p0_strats[0], p1_strats[0]) in ne
         assert (p0_strats[1], p1_strats[1]) in ne
+
+
+class TestFindMixedNashEquilibria:
+    def test_single_strategy_each_player(self):
+        """Single strategy each player is trivially a NE."""
+        p0_strats = [Strategy({})]
+        p1_strats = [Strategy({})]
+
+        array = NDimArray([(S(5), S(3))], (1, 1, 2))
+
+        ne = find_mixed_nash_equilibria([p0_strats, p1_strats], array)
+
+        assert len(ne) == 1
+        row_mix, col_mix = ne[0]
+        assert isinstance(row_mix, MixedStrategy)
+        assert isinstance(col_mix, MixedStrategy)
+        assert row_mix[p0_strats[0]] == 1
+        assert col_mix[p1_strats[0]] == 1
+
+    def test_matching_pennies(self):
+        """Matching pennies has unique mixed NE with 50/50 for each player."""
+        p0_strats = [Strategy({"A": "a"}), Strategy({"A": "b"})]
+        p1_strats = [Strategy({"B": "x"}), Strategy({"B": "y"})]
+
+        array = NDimArray(
+            [(S(1), S(-1)), (S(-1), S(1)), (S(-1), S(1)), (S(1), S(-1))],
+            (2, 2, 2),
+        )
+
+        ne = find_mixed_nash_equilibria([p0_strats, p1_strats], array)
+
+        assert len(ne) == 1
+        row_mix, col_mix = ne[0]
+        assert row_mix[p0_strats[0]] == Rational(1, 2)
+        assert row_mix[p0_strats[1]] == Rational(1, 2)
+        assert col_mix[p1_strats[0]] == Rational(1, 2)
+        assert col_mix[p1_strats[1]] == Rational(1, 2)
+
+    def test_pure_ne_also_in_mixed(self):
+        """Pure NE should also appear in mixed NE results."""
+        p0_strats = [Strategy({"A": "a"}), Strategy({"A": "b"})]
+        p1_strats = [Strategy({"B": "x"}), Strategy({"B": "y"})]
+
+        array = NDimArray(
+            [(S(3), S(3)), (S(0), S(0)), (S(0), S(0)), (S(1), S(1))],
+            (2, 2, 2),
+        )
+
+        ne = find_mixed_nash_equilibria([p0_strats, p1_strats], array)
+
+        assert len(ne) == 3
+        pure_ne_found = False
+        for row_mix, col_mix in ne:
+            if row_mix[p0_strats[0]] == 1 and col_mix[p1_strats[0]] == 1:
+                pure_ne_found = True
+                break
+        assert pure_ne_found
+
+    def test_non_2_player_raises_error(self):
+        """Should raise ValueError for non-2-player games."""
+        p0_strats = [Strategy({})]
+
+        array = NDimArray([(S(5),)], (1, 1))
+
+        with pytest.raises(ValueError, match="two-player"):
+            find_mixed_nash_equilibria([p0_strats], array)

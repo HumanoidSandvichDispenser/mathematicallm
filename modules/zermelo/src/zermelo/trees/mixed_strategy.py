@@ -23,12 +23,14 @@ class MixedStrategy(Mapping):
 
     def __str__(self):
         items = ", ".join(
-            f"{s}: {p}" for s, p in sorted(self._strategy_probs.items())
+            f"{s}: {p}"
+            for s, p in sorted(self._strategy_probs.items(), key=lambda x: str(x[0]))
         )
         return f"{{{items}}}"
 
     def __repr__(self):
         items = ", ".join(
-            f"{s}: {p}" for s, p in sorted(self._strategy_probs.items())
+            f"{s}: {p}"
+            for s, p in sorted(self._strategy_probs.items(), key=lambda x: str(x[0]))
         )
         return f"MixedStrategy({items})"

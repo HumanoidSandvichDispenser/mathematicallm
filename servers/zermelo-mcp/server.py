@@ -14,7 +14,11 @@ from zermelo.analysis.strategies import (
     find_reduced_pure_strategies,
     create_payoff_array,
 )
-from zermelo.analysis.equilibria import find_pure_nash_equilibria
+from zermelo.analysis.equilibria import (
+    find_pure_nash_equilibria,
+    find_mixed_nash_equilibria,
+)
+from zermelo.trees.mixed_strategy import MixedStrategy
 from zermelo.parsers.yaml import load_game_from_yaml
 from zermelo.visualization.render import render_tree as _render_tree
 
@@ -253,7 +257,9 @@ def show_tree(game_id: str) -> str:
 
 
 @mcp.tool(title="Find pure strategies for a player")
-def find_player_strategies(game_id: str, players: list[str], reduced: bool = True) -> str:
+def find_player_strategies(
+    game_id: str, players: list[str], reduced: bool = True
+) -> str:
     """
     Find all pure strategies for the specified players in an extensive-form game.
 
@@ -486,6 +492,177 @@ def render_game_tree(game_id: str) -> Image:
     root = _games[game_id]
     png_bytes = _render_tree(root, format="png")
     return Image(data=png_bytes, format="png")
+
+
+@mcp.tool(title="Find mixed Nash equilibria")
+def find_mixed_ne(game_id: str) -> str:
+    """
+    Find all mixed Nash equilibria via support enumeration.
+
+    This function computes mixed Nash equilibria for 2-player games. It returns
+    both pure and mixed strategy equilibria. For games with more than 2 players,
+    an error is returned.
+
+    Args:
+        game_id: ID of the game tree
+
+    Returns:
+        A description of all mixed Nash equilibria found
+    """
+    if game_id not in _games:
+        return f"Error: Game '{game_id}' not found"
+
+    root = _games[game_id]
+
+    try:
+        players = root.get_players()
+        if len(players) != 2:
+            return f"Error: Mixed Nash equilibrium only supports 2-player games. Found {len(players)} players: {players}"
+
+        profiles = {p: find_reduced_pure_strategies(root, p) for p in players}
+        array, player_order = create_payoff_array(root, profiles)
+        profiles_list = [profiles[p] for p in player_order]
+
+        mixed_ne = find_mixed_nash_equilibria(profiles_list, array)
+
+        if not mixed_ne:
+            return f"No mixed Nash equilibria found for '{game_id}'"
+
+        output = [f"Mixed Nash equilibria for '{game_id}' ({len(mixed_ne)} found):"]
+
+        for i, (row_mix, col_mix) in enumerate(mixed_ne, 1):
+            output.append(f"\n--- Equilibrium {i} ---")
+
+            for player_idx, (mix, player) in enumerate(
+                [(row_mix, player_order[0]), (col_mix, player_order[1])]
+            ):
+                strat_list = [f"{dict(s._decisions)}: {p}" for s, p in mix.items()]
+                output.append(f"  Player '{player}': {', '.join(strat_list)}")
+
+        return "\n".join(output)
+    except ValueError as e:
+        return f"Error: {e}"
+    except Exception as e:
+        return f"Error finding mixed Nash equilibria: {e}"
+
+
+@mcp.tool(title="Find Nash equilibria from payoff matrix")
+def find_equilibria_from_matrix(
+    row_payoffs: list[list[float]],
+    col_payoffs: list[list[float]],
+    row_strategy_names: list[str] | None = None,
+    col_strategy_names: list[str] | None = None,
+) -> str:
+    """
+    Find Nash equilibria directly from a payoff matrix (normal form game).
+
+    This is a convenience function that lets you analyze 2-player games
+    without having to build a game tree. Simply provide the payoff matrices
+    for each player.
+
+    Args:
+        row_payoffs: 2D list of row player payoffs. Shape: (m, n) where m is
+            number of row strategies, n is number of column strategies.
+        col_payoffs: 2D list of column player payoffs. Shape: (m, n).
+        row_strategy_names: Optional list of names for row strategies.
+            Defaults to ["r0", "r1", ...].
+        col_strategy_names: Optional list of names for column strategies.
+            Defaults to ["c0", "c1", ...].
+
+    Returns:
+        A description of all pure and mixed Nash equilibria found.
+
+    ## Example
+
+    Matching pennies:
+    ```
+    row_payoffs = [[1, -1], [-1, 1]]
+    col_payoffs = [[-1, 1], [1, -1]]
+    ```
+    """
+    from sympy import Rational
+    from sympy.tensor.array.ndim_array import NDimArray
+
+    m = len(row_payoffs)
+    n = len(row_payoffs[0])
+
+    if len(col_payoffs) != m or any(len(row) != n for row in col_payoffs):
+        return "Error: Payoff matrices must have the same dimensions"
+
+    r_names = row_strategy_names or [f"r{i}" for i in range(m)]
+    c_names = col_strategy_names or [f"c{j}" for j in range(n)]
+
+    if len(r_names) != m:
+        return f"Error: Expected {m} row strategy names, got {len(r_names)}"
+    if len(c_names) != n:
+        return f"Error: Expected {n} column strategy names, got {len(c_names)}"
+
+    row_strategies = [Strategy({r_names[i]: r_names[i]}) for i in range(m)]
+    col_strategies = [Strategy({c_names[j]: c_names[j]}) for j in range(n)]
+
+    entries = []
+    for i in range(m):
+        for j in range(n):
+            entries.append((Rational(row_payoffs[i][j]), Rational(col_payoffs[i][j])))
+
+    shape = (m, n, 2)
+    array = NDimArray(entries, shape)
+
+    profiles = [row_strategies, col_strategies]
+
+    pure_ne = find_pure_nash_equilibria(profiles, array)
+    mixed_ne = find_mixed_nash_equilibria(profiles, array)
+
+    output = [
+        f"2-player game with {m} row strategies x {n} column strategies:",
+        f"Row strategies: {r_names}",
+        f"Column strategies: {c_names}",
+        "",
+        "Payoff matrix (row, col):",
+    ]
+
+    header = "       " + "".join(f"{c:>8}" for c in c_names)
+    output.append(header)
+    for i in range(m):
+        row_str = f"{r_names[i]:>6}" + "".join(
+            f"({row_payoffs[i][j]:>3},{col_payoffs[i][j]:>3})" for j in range(n)
+        )
+        output.append(row_str)
+
+    output.append("")
+
+    if pure_ne:
+        output.append(f"Pure Nash Equilibria ({len(pure_ne)} found):")
+        for i, eq in enumerate(pure_ne, 1):
+            row_strat, col_strat = eq
+            r_idx = row_strategies.index(row_strat)
+            c_idx = col_strategies.index(col_strat)
+            output.append(f"  {i}. Row: {r_names[r_idx]}, Col: {c_names[c_idx]}")
+    else:
+        output.append("Pure Nash Equilibria: None")
+
+    output.append("")
+
+    if mixed_ne:
+        output.append(f"Mixed Nash Equilibria ({len(mixed_ne)} found):")
+        for i, (row_mix, col_mix) in enumerate(mixed_ne, 1):
+            output.append(f"  --- Equilibrium {i} ---")
+
+            r_probs = []
+            for strat, prob in row_mix.items():
+                idx = row_strategies.index(strat)
+                r_probs.append(f"{r_names[idx]}:{prob}")
+            output.append(f"    Row: {', '.join(r_probs)}")
+
+            c_probs = []
+            for strat, prob in col_mix.items():
+                idx = col_strategies.index(strat)
+                c_probs.append(f"{c_names[idx]}:{prob}")
+            output.append(f"    Col: {', '.join(c_probs)}")
+    else:
+        output.append("Mixed Nash Equilibria: None")
+
+    return "\n".join(output)
 
 
 if __name__ == "__main__":

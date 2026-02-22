@@ -1,7 +1,9 @@
-from itertools import product
+from itertools import product, combinations
 
+from sympy import Rational, Matrix
 from sympy.tensor.array.ndim_array import NDimArray
 from zermelo.trees.node import Node, DecisionNode, TerminalNode
+from zermelo.trees.mixed_strategy import MixedStrategy
 from zermelo.trees.strategy import Strategy
 
 
@@ -72,3 +74,122 @@ def backwards_induction(root: "Node") -> list[Strategy]:
     the strategies of the other players.
     """
     raise NotImplementedError()
+
+
+def find_mixed_nash_equilibria(
+    profiles: list[list[Strategy]],
+    array: NDimArray,
+) -> list[tuple[MixedStrategy, MixedStrategy]]:
+    """
+    Find all mixed Nash Equilibria via support enumeration.
+
+    Args:
+        profiles: list of strategy lists, one per player. profiles[0] = row
+                  player strategies, profiles[1] = col player strategies.
+        array:    NDimArray of shape (m, n, 2) — array[i, j] = (v_row, v_col)
+
+    Returns:
+        A list of equilibria. Each equilibrium is a tuple of two MixedStrategy
+        objects (row player, col player).
+    """
+    if len(profiles) != 2:
+        raise ValueError("This algorithm only supports two-player games.")
+
+    m = len(profiles[0])
+    n = len(profiles[1])
+
+    A = Matrix(m, n, lambda i, j: array[i, j][0])
+    B = Matrix(m, n, lambda i, j: array[i, j][1])
+
+    equilibria = []
+    seen = set()
+
+    for k in range(1, min(m, n) + 1):
+        for I in combinations(range(m), k):
+            for J in combinations(range(n), k):
+                M_q: Matrix = Matrix.zeros(k, k)
+                rhs_q = Matrix.zeros(k, 1)
+
+                for row_idx in range(k - 1):
+                    i0 = I[0]
+                    i1 = I[row_idx + 1]
+                    for col_idx, j in enumerate(J):
+                        M_q[row_idx, col_idx] = A[i0, j] - A[i1, j]  # type: ignore
+                    rhs_q[row_idx] = 0
+
+                for col_idx in range(k):
+                    M_q[k - 1, col_idx] = 1
+                rhs_q[k - 1] = 1
+
+                if M_q.det() == 0:
+                    continue
+
+                q_vec = M_q.solve(rhs_q)
+
+                if any(q_vec[t] < 0 for t in range(k)):
+                    continue
+
+                q_full = [Rational(0)] * n
+                for t, j in enumerate(J):
+                    q_full[j] = q_vec[t]
+
+                v1 = sum(A[I[0], j] * q_full[j] for j in range(n))
+
+                M_p = Matrix.zeros(k, k)
+                rhs_p = Matrix.zeros(k, 1)
+
+                for col_idx in range(k - 1):
+                    j0 = J[0]
+                    j1 = J[col_idx + 1]
+                    for row_idx, i in enumerate(I):
+                        M_p[col_idx, row_idx] = B[i, j0] - B[i, j1]  # type: ignore
+                    rhs_p[col_idx] = 0
+
+                for row_idx in range(k):
+                    M_p[k - 1, row_idx] = 1
+                rhs_p[k - 1] = 1
+
+                if M_p.det() == 0:
+                    continue
+
+                p_vec = M_p.solve(rhs_p)
+
+                if any(p_vec[t] < 0 for t in range(k)):
+                    continue
+
+                p_full = [Rational(0)] * m
+                for t, i in enumerate(I):
+                    p_full[i] = p_vec[t]
+
+                v2 = sum(p_full[i] * B[i, J[0]] for i in range(m))
+
+                row_ok = all(
+                    sum(A[i, j] * q_full[j] for j in range(n)) <= v1
+                    for i in range(m)
+                    if i not in I
+                )
+
+                col_ok = all(
+                    sum(p_full[i] * B[i, j] for i in range(m)) <= v2
+                    for j in range(n)
+                    if j not in J
+                )
+
+                if not (row_ok and col_ok):
+                    continue
+
+                key = (tuple(p_full), tuple(q_full))
+                if key in seen:
+                    continue
+                seen.add(key)
+
+                row_mix = MixedStrategy(
+                    {profiles[0][i]: p_full[i] for i in range(m) if p_full[i] > 0}
+                )
+                col_mix = MixedStrategy(
+                    {profiles[1][j]: q_full[j] for j in range(n) if q_full[j] > 0}
+                )
+
+                equilibria.append((row_mix, col_mix))
+
+    return equilibria
