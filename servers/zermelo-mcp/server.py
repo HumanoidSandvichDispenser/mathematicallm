@@ -112,7 +112,7 @@ def add_chance_node(
     game_id: str,
     node_id: str,
     parent_id: str,
-    probabilities: dict[str, float] | None = None,
+    probabilities: dict[str, str | int] | None = None,
 ) -> str:
     """
     Add a chance node to the game tree.
@@ -137,9 +137,22 @@ def add_chance_node(
     if _find_node(root, node_id) is not None:
         return f"Error: Node '{node_id}' already exists"
 
-    from sympy import Rational
+    from sympy import Basic, sympify
 
-    probs = {k: Rational(v) for k, v in (probabilities or {"default": 1.0}).items()}
+    def _parse_probability(value: str | int | Basic) -> Basic:
+        if isinstance(value, Basic):
+            return value
+        if isinstance(value, int):
+            return sympify(value)
+        if isinstance(value, str):
+            return sympify(value)
+        raise TypeError(
+            "Chance node probabilities must be ints or SymPy expressions encoded as strings"
+        )
+
+    default_probs = {"default": "1"}
+    probs_input = probabilities or default_probs
+    probs = {k: _parse_probability(v) for k, v in probs_input.items()}
     new_node = ChanceNode(node_id, probs)
 
     for action in probs:
@@ -156,7 +169,7 @@ def add_terminal_node(
     game_id: str,
     node_id: str,
     parent_id: str,
-    payoffs: list[float],
+    payoffs: list[str | int],
     action: str | None = None,
 ) -> str:
     """
@@ -166,7 +179,7 @@ def add_terminal_node(
         game_id: ID of the game tree
         node_id: Unique identifier for the new node
         parent_id: ID of the parent node
-        payoffs: List of payoffs for each player (e.g., [3, 1] for 2 players)
+        payoffs: List of payoffs for each player expressed as strings or ints
         action: The action key under parent to connect this terminal node (defaults to node_id)
 
     Returns:
@@ -180,7 +193,20 @@ def add_terminal_node(
     if parent is None:
         return f"Error: Parent node '{parent_id}' not found"
 
-    terminal = TerminalNode(node_id, tuple(payoffs))
+    from sympy import Basic, sympify
+
+    def _parse_payoff(value: str | int | Basic) -> Basic:
+        if isinstance(value, Basic):
+            return value
+        if isinstance(value, int):
+            return sympify(value)
+        if isinstance(value, str):
+            return sympify(value)
+        raise TypeError(
+            "Terminal payoffs must be ints or strings representing sympy expressions"
+        )
+
+    terminal = TerminalNode(node_id, tuple(_parse_payoff(value) for value in payoffs))
     action_key = action if action else node_id
     parent.add_child(terminal, action_key)
 
