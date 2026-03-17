@@ -93,7 +93,7 @@ def find_mixed_nash_equilibria(
         objects (row player, col player).
     """
     if len(profiles) != 2:
-        raise ValueError("This algorithm only supports two-player games.")
+        raise NotImplementedError("This algorithm only supports two-player games.")
 
     m = len(profiles[0])
     n = len(profiles[1])
