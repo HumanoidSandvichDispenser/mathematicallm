@@ -548,8 +548,8 @@ def find_mixed_ne(game_id: str) -> str:
 
 @mcp.tool(title="Find Nash equilibria from payoff matrix")
 def find_equilibria_from_matrix(
-    row_payoffs: list[list[float]],
-    col_payoffs: list[list[float]],
+    row_payoffs: list[list[str]],
+    col_payoffs: list[list[str]],
     row_strategy_names: list[str] | None = None,
     col_strategy_names: list[str] | None = None,
 ) -> str:
@@ -561,9 +561,11 @@ def find_equilibria_from_matrix(
     for each player.
 
     Args:
-        row_payoffs: 2D list of row player payoffs. Shape: (m, n) where m is
-            number of row strategies, n is number of column strategies.
-        col_payoffs: 2D list of column player payoffs. Shape: (m, n).
+        row_payoffs: 2D list of row player payoffs described as strings.
+            Shape: (m, n) where m is number of row strategies, n is number of
+            column strategies.
+        col_payoffs: 2D list of column player payoffs described as strings.
+            Shape: (m, n).
         row_strategy_names: Optional list of names for row strategies.
             Defaults to ["r0", "r1", ...].
         col_strategy_names: Optional list of names for column strategies.
@@ -576,11 +578,11 @@ def find_equilibria_from_matrix(
 
     Matching pennies:
     ```
-    row_payoffs = [[1, -1], [-1, 1]]
-    col_payoffs = [[-1, 1], [1, -1]]
+    row_payoffs = [["1", "-1"], ["-1", "1"]]
+    col_payoffs = [["-1", "1"], ["1", "-1"]]
     ```
     """
-    from sympy import Rational
+    from sympy import Basic, Rational, sympify
     from sympy.tensor.array.ndim_array import NDimArray
 
     m = len(row_payoffs)
@@ -597,13 +599,26 @@ def find_equilibria_from_matrix(
     if len(c_names) != n:
         return f"Error: Expected {n} column strategy names, got {len(c_names)}"
 
+    def _parse_entry(value: str | Basic) -> Basic:
+        if isinstance(value, Basic):
+            return value
+        if not isinstance(value, str):
+            raise TypeError("Payoff entries must be strings when using sympy symbols")
+        return sympify(value)
+
+    row_values = [[_parse_entry(entry) for entry in row] for row in row_payoffs]
+    col_values = [[_parse_entry(entry) for entry in row] for row in col_payoffs]
+
+    row_display = [[str(entry) for entry in row] for row in row_payoffs]
+    col_display = [[str(entry) for entry in row] for row in col_payoffs]
+
     row_strategies = [Strategy({r_names[i]: r_names[i]}) for i in range(m)]
     col_strategies = [Strategy({c_names[j]: c_names[j]}) for j in range(n)]
 
     entries = []
     for i in range(m):
         for j in range(n):
-            entries.append((Rational(row_payoffs[i][j]), Rational(col_payoffs[i][j])))
+            entries.append((row_values[i][j], col_values[i][j]))
 
     shape = (m, n, 2)
     array = NDimArray(entries, shape)
@@ -625,7 +640,7 @@ def find_equilibria_from_matrix(
     output.append(header)
     for i in range(m):
         row_str = f"{r_names[i]:>6}" + "".join(
-            f"({row_payoffs[i][j]:>3},{col_payoffs[i][j]:>3})" for j in range(n)
+            f"({row_display[i][j]},{col_display[i][j]})" for j in range(n)
         )
         output.append(row_str)
 
