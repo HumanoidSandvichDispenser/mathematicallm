@@ -24,7 +24,20 @@ from zermelo.trees.mixed_strategy import MixedStrategy
 from zermelo.parsers.yaml import load_game_from_yaml
 from zermelo.visualization.render import render_tree as _render_tree
 
-mcp = FastMCP("zermelo-mcp")
+
+def _fastmcp_host() -> str:
+    return os.getenv("FASTMCP_HOST", "127.0.0.1")
+
+
+def _fastmcp_port() -> int:
+    return int(os.getenv("FASTMCP_PORT", "8000"))
+
+
+HOST = _fastmcp_host()
+PORT = _fastmcp_port()
+
+mcp = FastMCP("zermelo-mcp", host=HOST, port=PORT)
+
 
 _games: dict[str, Node] = {}
 _counter = 0

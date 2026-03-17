@@ -1,1 +1,1 @@
-web: uv run fastmcp run servers/zermelo-mcp/server.py --transport streamable-http --port $PORT
+web: FASTMCP_HOST=0.0.0.0 FASTMCP_PORT=${PORT} python servers/zermelo-mcp/server.py
