@@ -1,5 +1,7 @@
 """MCP server for game tree analysis operations."""
 
+import os
+
 from mcp.server.fastmcp import FastMCP, Image
 from zermelo.trees.node import (
     DecisionNode,
@@ -707,4 +709,5 @@ def find_equilibria_from_matrix(
 
 
 if __name__ == "__main__":
-    mcp.run()
+    transport = os.getenv("FASTMCP_TRANSPORT", "streamable-http")
+    mcp.run(transport=transport)
