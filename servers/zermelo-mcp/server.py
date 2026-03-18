@@ -19,6 +19,7 @@ from zermelo.analysis.strategies import (
 from zermelo.analysis.equilibria import (
     find_pure_nash_equilibria,
     find_mixed_nash_equilibria,
+    find_pure_mm_solutions,
 )
 from zermelo.trees.mixed_strategy import MixedStrategy
 from zermelo.parsers.yaml import load_game_from_yaml
@@ -587,6 +588,61 @@ def find_mixed_ne(game_id: str) -> str:
         return f"Error finding mixed Nash equilibria: {e}"
 
 
+@mcp.tool(title="Find pure maximin solutions")
+def find_pure_mm(game_id: str) -> str:
+    """
+    Find pure maximin solutions for each player.
+
+    This function computes the reduced pure strategies for each player,
+    constructs the strategic-form payoff tensor, and then computes each
+    player's pure maximin strategy set and maximin value.
+
+    Args:
+        game_id: ID of the game tree
+
+    Returns:
+        A description of pure maximin solutions for every player.
+    """
+    if game_id not in _games:
+        return f"Error: Game '{game_id}' not found"
+
+    root = _games[game_id]
+
+    try:
+        players = root.get_players()
+        if not players:
+            return f"Error: Game '{game_id}' has no decision players"
+
+        profiles = {p: find_reduced_pure_strategies(root, p) for p in players}
+        array, player_order = create_payoff_array(root, profiles)
+        profiles_list = [profiles[p] for p in player_order]
+
+        mm_solutions = find_pure_mm_solutions(profiles_list, array)
+
+        output = [
+            f"Pure maximin solutions for '{game_id}' ({len(mm_solutions)} players):"
+        ]
+
+        for player_idx, player in enumerate(player_order):
+            solution = mm_solutions[player_idx]
+            output.append(
+                f"\nPlayer '{player}' maximin value: {solution.value} "
+                f"({len(solution.strategies)} "
+                f"{'strategies' if len(solution.strategies) != 1 else 'strategy'})"
+            )
+            for i, strategy in enumerate(sorted(solution.strategies, key=str), 1):
+                if strategy._decisions:
+                    output.append(f"  {i}. {dict(strategy._decisions)}")
+                else:
+                    output.append(f"  {i}. (empty)")
+
+        return "\n".join(output)
+    except ValueError as e:
+        return f"Error: {e}"
+    except Exception as e:
+        return f"Error finding pure maximin solutions: {e}"
+
+
 @mcp.tool(title="Find Nash equilibria from payoff matrix")
 def find_equilibria_from_matrix(
     row_payoffs: list[list[str]],
@@ -717,6 +773,102 @@ def find_equilibria_from_matrix(
             output.append(f"    Col: {', '.join(c_probs)}")
     else:
         output.append("Mixed Nash Equilibria: None")
+
+    return "\n".join(output)
+
+
+@mcp.tool(title="Find pure maximin solutions from payoff matrix")
+def find_pure_mm_from_matrix(
+    row_payoffs: list[list[str]],
+    col_payoffs: list[list[str]],
+    row_strategy_names: list[str] | None = None,
+    col_strategy_names: list[str] | None = None,
+) -> str:
+    """
+    Find pure maximin solutions directly from a 2-player payoff matrix.
+
+    This is a convenience function for normal-form games. It computes each
+    player's pure maximin strategy set and maximin value.
+
+    Args:
+        row_payoffs: 2D list of row player payoffs described as strings.
+            Shape: (m, n).
+        col_payoffs: 2D list of column player payoffs described as strings.
+            Shape: (m, n).
+        row_strategy_names: Optional list of names for row strategies.
+            Defaults to ["r0", "r1", ...].
+        col_strategy_names: Optional list of names for column strategies.
+            Defaults to ["c0", "c1", ...].
+
+    Returns:
+        A description of pure maximin solutions for both players.
+    """
+    from sympy import Basic, sympify
+    from sympy.tensor.array.ndim_array import NDimArray
+
+    if not row_payoffs or not row_payoffs[0]:
+        return "Error: row_payoffs must be a non-empty rectangular matrix"
+
+    m = len(row_payoffs)
+    n = len(row_payoffs[0])
+
+    if any(len(row) != n for row in row_payoffs):
+        return "Error: row_payoffs must be rectangular"
+
+    if len(col_payoffs) != m or any(len(row) != n for row in col_payoffs):
+        return "Error: Payoff matrices must have the same dimensions"
+
+    r_names = row_strategy_names or [f"r{i}" for i in range(m)]
+    c_names = col_strategy_names or [f"c{j}" for j in range(n)]
+
+    if len(r_names) != m:
+        return f"Error: Expected {m} row strategy names, got {len(r_names)}"
+    if len(c_names) != n:
+        return f"Error: Expected {n} column strategy names, got {len(c_names)}"
+
+    def _parse_entry(value: str | Basic) -> Basic:
+        if isinstance(value, Basic):
+            return value
+        if not isinstance(value, str):
+            raise TypeError("Payoff entries must be strings when using sympy symbols")
+        return sympify(value)
+
+    try:
+        row_values = [[_parse_entry(entry) for entry in row] for row in row_payoffs]
+        col_values = [[_parse_entry(entry) for entry in row] for row in col_payoffs]
+    except Exception as e:
+        return f"Error parsing payoff entries: {e}"
+
+    row_strategies = [Strategy({r_names[i]: r_names[i]}) for i in range(m)]
+    col_strategies = [Strategy({c_names[j]: c_names[j]}) for j in range(n)]
+
+    entries = []
+    for i in range(m):
+        for j in range(n):
+            entries.append((row_values[i][j], col_values[i][j]))
+
+    array = NDimArray(entries, (m, n, 2))
+    mm_solutions = find_pure_mm_solutions([row_strategies, col_strategies], array)
+
+    output = [
+        f"2-player game with {m} row strategies x {n} column strategies:",
+        f"Row strategies: {r_names}",
+        f"Column strategies: {c_names}",
+        "",
+        "Pure maximin solutions:",
+    ]
+
+    row_solution = mm_solutions[0]
+    row_names = [r_names[row_strategies.index(s)] for s in row_solution.strategies]
+    output.append(
+        f"  Row player value: {row_solution.value}; strategies: {', '.join(row_names)}"
+    )
+
+    col_solution = mm_solutions[1]
+    col_names = [c_names[col_strategies.index(s)] for s in col_solution.strategies]
+    output.append(
+        f"  Column player value: {col_solution.value}; strategies: {', '.join(col_names)}"
+    )
 
     return "\n".join(output)
 
