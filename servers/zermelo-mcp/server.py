@@ -21,6 +21,7 @@ from zermelo.analysis.equilibria import (
     find_mixed_nash_equilibria,
     find_pure_mm_solutions,
 )
+from zermelo.analysis.matching import deferred_acceptance
 from zermelo.trees.mixed_strategy import MixedStrategy
 from zermelo.parsers.yaml import load_game_from_yaml
 from zermelo.visualization.render import render_tree as _render_tree
@@ -868,6 +869,72 @@ def find_pure_mm_from_matrix(
     col_names = [c_names[col_strategies.index(s)] for s in col_solution.strategies]
     output.append(
         f"  Column player value: {col_solution.value}; strategies: {', '.join(col_names)}"
+    )
+
+    return "\n".join(output)
+
+
+@mcp.tool(title="Find stable matching with deferred acceptance")
+def find_stable_matching(
+    proposer_preferences: dict[str, list[str]],
+    receiver_preferences: dict[str, list[str]],
+) -> str:
+    """
+    Compute a stable matching from two-sided preference lists using deferred
+    acceptance (Gale-Shapley).
+
+    Preference lists may be incomplete. If a participant does not rank someone,
+    that partner is treated as unacceptable, so the result may be a partial
+    matching.
+
+    Args:
+        proposer_preferences: Mapping from each proposer to their ranked list of
+            acceptable receivers.
+        receiver_preferences: Mapping from each receiver to their ranked list of
+            acceptable proposers.
+
+    Returns:
+        A text summary of the stable matching, including unmatched participants.
+    """
+    try:
+        result = deferred_acceptance(proposer_preferences, receiver_preferences)
+    except ValueError as e:
+        return f"Error: {e}"
+    except Exception as e:
+        return f"Error finding stable matching: {e}"
+
+    output = [
+        "Deferred acceptance result:",
+        f"Proposers: {len(proposer_preferences)}",
+        f"Receivers: {len(receiver_preferences)}",
+        f"Matched pairs: {len(result.matched_pairs)}",
+        "",
+        "Matches:",
+    ]
+
+    for proposer in sorted(result.proposer_matches, key=str):
+        receiver = result.proposer_matches[proposer]
+        if receiver is None:
+            output.append(f"  {proposer} -> unmatched")
+        else:
+            output.append(f"  {proposer} -> {receiver}")
+
+    output.append("")
+    output.append(
+        "Unmatched proposers: "
+        + (
+            ", ".join(str(p) for p in sorted(result.unmatched_proposers, key=str))
+            if result.unmatched_proposers
+            else "none"
+        )
+    )
+    output.append(
+        "Unmatched receivers: "
+        + (
+            ", ".join(str(r) for r in sorted(result.unmatched_receivers, key=str))
+            if result.unmatched_receivers
+            else "none"
+        )
     )
 
     return "\n".join(output)
