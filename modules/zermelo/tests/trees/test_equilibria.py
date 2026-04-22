@@ -11,6 +11,7 @@ from zermelo.analysis.equilibria import (
     find_pure_nash_equilibria,
     find_mixed_nash_equilibria,
     find_pure_mm_solutions,
+    draw_simplex_diagrams,
     PureMMSolution,
 )
 
@@ -258,3 +259,131 @@ class TestFindPureMMSolutions:
 
         with pytest.raises(ValueError, match="shape"):
             find_pure_mm_solutions([p0_strats, p1_strats], array)
+
+
+class TestDrawSimplexDiagrams:
+    def test_returns_svg_markup(self):
+        p1 = [
+            [3, 0, 1],
+            [1, 2, 0],
+            [0, 1, 3],
+        ]
+        p2 = [
+            [2, 1, 0],
+            [0, 2, 1],
+            [1, 0, 2],
+        ]
+        equilibria = [
+            ([1 / 2, 1 / 2, 0], [1 / 3, 1 / 3, 1 / 3]),
+            ([0, 1, 0], [0, 0, 1]),
+        ]
+
+        svg = draw_simplex_diagrams(p1, p2, equilibria)
+
+        assert svg.startswith('<svg xmlns="http://www.w3.org/2000/svg"')
+        assert "Q-simplex" in svg
+        assert "P-simplex" in svg
+        assert "NE1 q=(1/3, 1/3, 1/3)" in svg
+        assert "NE1 p=(1/2, 1/2, 0)" in svg
+        assert 'class="indiff"' in svg
+
+    def test_supports_named_strategy_labels(self):
+        p1 = [
+            [2, 1, 3],
+            [1, 3, 1],
+            [3, -1, 0],
+        ]
+        p2 = [
+            [1, 2, 0],
+            [4, -1, 1],
+            [0, 3, 1],
+        ]
+        equilibria = [
+            ([0, 3 / 8, 5 / 8], [2 / 3, 1 / 3, 0]),
+            ([5 / 6, 1 / 6, 0], [2 / 3, 1 / 3, 0]),
+        ]
+
+        svg = draw_simplex_diagrams(
+            p1,
+            p2,
+            equilibria,
+            row_strategy_labels=["1", "2", "3"],
+            col_strategy_labels=["A", "B", "C"],
+        )
+
+        assert "A" in svg and "B" in svg and "C" in svg
+        assert "1" in svg and "2" in svg and "3" in svg
+        assert "u(1)=u(2)" in svg
+        assert "v(A)=v(B)" in svg
+
+    def test_offsets_overlapping_equilibrium_points(self):
+        p1 = [
+            [2, 1, 3],
+            [1, 3, 1],
+            [3, -1, 0],
+        ]
+        p2 = [
+            [1, 2, 0],
+            [4, -1, 1],
+            [0, 3, 1],
+        ]
+        equilibria = [
+            ([0, 3 / 8, 5 / 8], [2 / 3, 1 / 3, 0]),
+            ([5 / 6, 1 / 6, 0], [2 / 3, 1 / 3, 0]),
+        ]
+
+        svg = draw_simplex_diagrams(p1, p2, equilibria)
+
+        assert 'class="eq-offset"' in svg
+
+    def test_marks_component_endpoints(self):
+        p1 = [
+            [0, 1, 4],
+            [3, 0, 1],
+            [2, 1, 2],
+        ]
+        p2 = [
+            [1, 3, 1],
+            [2, 0, 1],
+            [2, 2, 3],
+        ]
+        equilibria = [
+            ([1 / 3, 1 / 3, 1 / 3], [1 / 2, 0, 1 / 2]),
+            ([1 / 3, 0, 2 / 3], [0, 1, 0]),
+            ([0, 1 / 2, 1 / 2], [1 / 2, 0, 1 / 2]),
+            ([1, 0, 0], [0, 1, 0]),
+            ([0, 1, 0], [1, 0, 0]),
+        ]
+
+        svg = draw_simplex_diagrams(
+            p1,
+            p2,
+            equilibria,
+            row_strategy_labels=["1", "2", "3"],
+            col_strategy_labels=["A", "B", "C"],
+        )
+
+        assert 'class="eq-component"' in svg
+        assert 'class="endpoint-label"' in svg
+
+    def test_rejects_non_3x3_payoff_shape(self):
+        p1 = [[1, 2], [3, 4]]
+        p2 = [[1, 2], [3, 4]]
+
+        with pytest.raises(ValueError, match="3x3"):
+            draw_simplex_diagrams(p1, p2, [])
+
+    def test_rejects_invalid_probability_vector(self):
+        p1 = [
+            [1, 0, 0],
+            [0, 1, 0],
+            [0, 0, 1],
+        ]
+        p2 = [
+            [1, 0, 0],
+            [0, 1, 0],
+            [0, 0, 1],
+        ]
+
+        with pytest.raises(ValueError, match="sum to 1"):
+            draw_simplex_diagrams(p1, p2, [([0.2, 0.2, 0.2], [1, 0, 0])])
